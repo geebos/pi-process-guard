@@ -1,6 +1,6 @@
 {
   "name": "pi-process-guard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "pi-guard — guard extension for pi coding agent (initial skeleton)",
   "type": "module",
   "main": "./extensions/index.ts",
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
     "check": "npm run typecheck && npm test",
-    "publish:local": "node scripts/publish-local.mjs"
+    "publish:local": "npm version patch --no-git-tag-version && npm publish --registry http://localhost:4873"
   },
   "keywords": [
     "pi-package",
