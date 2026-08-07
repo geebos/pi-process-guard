@@ -44,6 +44,23 @@ pi install npm:pi-process-guard
 
 Janitor 自动启动，无需额外安装步骤，也没有面向用户的关闭开关。
 
+### 将 `pi-guard` 加入 `PATH`
+
+`pi install` 会把包安装到 `~/.pi/agent/npm/` 下，`pi-guard` 与
+`pi-guard-janitor` 二进制会软链到 `~/.pi/agent/bin/`。如果该目录不在你的
+`PATH` 中，请在你的 shell 配置里加上（zsh 为 `~/.zshrc`，bash 为 `~/.bashrc`）：
+
+```bash
+echo 'export PATH="$HOME/.pi/agent/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+验证：
+
+```bash
+which pi-guard    # → ~/.pi/agent/bin/pi-guard
+```
+
 **建议通过 launcher 启动 Pi**（可选 shell alias）：
 
 ```bash

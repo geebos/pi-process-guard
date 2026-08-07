@@ -49,6 +49,24 @@ pi install npm:pi-process-guard
 The janitor starts automatically; there is no extra installation step and no
 user-facing toggle.
 
+### Add `pi-guard` to your `PATH`
+
+`pi install` places the package under `~/.pi/agent/npm/`; the `pi-guard` and
+`pi-guard-janitor` binaries are symlinked into `~/.pi/agent/bin/`. If that
+directory is not already on your `PATH`, add it to your shell rc file
+(`~/.zshrc` for zsh, `~/.bashrc` for bash):
+
+```bash
+echo 'export PATH="$HOME/.pi/agent/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Verify:
+
+```bash
+which pi-guard    # → ~/.pi/agent/bin/pi-guard
+```
+
 **Prefer launching Pi through the launcher** (optionally via a shell alias):
 
 ```bash
