@@ -112,11 +112,11 @@ export function registerGuardCommand(pi: ExtensionAPI): void {
 				case "cleanup-session": {
 					const session = getSessionManager();
 					if (!session) {
-						reportToUser(ctx, "Pi Process Guard — no session manager");
+						reportToUser(ctx, `[pi-process-guard] no session manager`);
 						break;
 					}
 					const { stopped } = await session.cleanupSession();
-					reportToUser(ctx, `Pi Process Guard — session cleanup: ${stopped} job(s) stopped`);
+					reportToUser(ctx, `[pi-process-guard] session cleanup: stopped ${stopped} job(s)`);
 					break;
 				}
 				default: {

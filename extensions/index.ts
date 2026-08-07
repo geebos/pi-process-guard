@@ -18,6 +18,10 @@ import { createSessionManager } from "../src/session-manager.ts";
 import { getSessionManager, setSessionManager, hasLauncher } from "../src/store.ts";
 import { registerGuardCommand } from "../src/command.ts";
 import { registerGuardTools } from "../src/tools.ts";
+import { loadConfig } from "../src/config.ts";
+import { createLogger, PLUGIN_NAME } from "../src/log.ts";
+
+const log = createLogger(loadConfig(), { action: "session" });
 
 export default function (pi: ExtensionAPI) {
 	const sessionManager = createSessionManager();
@@ -38,13 +42,18 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_shutdown", async (_event) => {
+	pi.on("session_shutdown", async (_event, ctx) => {
 		const sm = getSessionManager();
 		if (!sm) return;
 		// Session-scoped cleanup only: /new, /resume, /fork, /reload must never
 		// touch runtime-level processes (docs/tech.md §10.2). On "quit" the
 		// janitor performs the runtime-level final sweep.
-		await sm.cleanupSession();
+		const { stopped } = await sm.cleanupSession();
+		log.info("session cleanup", {
+			cleaned: String(stopped),
+			sessionId: sm.currentSessionId,
+		});
+		ctx.ui.notify(`[${PLUGIN_NAME}] session cleanup: stopped ${stopped} job(s)`, "info");
 	});
 
 	// Phase 2: wrap bash tool commands into session-owned process groups.

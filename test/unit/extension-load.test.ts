@@ -110,3 +110,21 @@ test("user_bash returns custom operations that wrap the command", { timeout: 300
 	});
 	assert.deepEqual(wrappedResult, { exitCode: 0 }, "wrapped command executes successfully");
 });
+
+test("session_shutdown prints the plugin name and cleaned job count", { timeout: 30000 }, async () => {
+	const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
+	assert.deepEqual(result.errors, []);
+	const ext = result.extensions[0]!;
+	const notices: { message: string; type: string }[] = [];
+	const ctx = mockCtx(notices);
+
+	const startHandlers = ext.handlers.get("session_start")!;
+	await startHandlers[0]({ type: "session_start", reason: "startup" }, ctx);
+
+	const shutdownHandlers = ext.handlers.get("session_shutdown")!;
+	await shutdownHandlers[0]({ type: "session_shutdown", reason: "new" }, ctx);
+
+	const cleanupNotice = notices.find((n) => n.message.includes("pi-process-guard") && n.message.includes("session cleanup"));
+	assert.ok(cleanupNotice, "session cleanup prints the plugin name and job count");
+	assert.match(cleanupNotice!.message, /stopped \d+ job\(s\)/, "includes the cleaned job count");
+});

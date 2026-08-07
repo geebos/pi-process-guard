@@ -135,11 +135,16 @@ export function createProcessGroupBackend(config: GuardConfig, state: BackendCon
 
 		async snapshot(): Promise<RuntimeSnapshot> {
 			const members = pgid ? await listPgidMembers(pgid, owner) : [];
+			// Count escaped processes that still match their recorded identity.
+			let escapedAlive = 0;
+			for (const proc of escapedMembers()) {
+				if (await procVerify(proc)) escapedAlive += 1;
+			}
 			return {
 				backend: "process-group",
 				piPid: pgid ?? 0,
 				piPgid: pgid,
-				trackedProcesses: members.filter((m) => pidAlive(m.pid)).length,
+				trackedProcesses: members.filter((m) => pidAlive(m.pid)).length + escapedAlive,
 			};
 		},
 	};

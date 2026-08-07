@@ -10,6 +10,9 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GuardConfig, LogLevel } from "./types.ts";
 
+/** npm package / plugin name, included in every log record and printed by cleanup. */
+export const PLUGIN_NAME = "pi-process-guard";
+
 const LEVEL_ORDER: Record<LogLevel, number> = {
 	debug: 10,
 	info: 20,
@@ -60,6 +63,7 @@ export function createLogger(config: Pick<GuardConfig, "logging">, ctx?: LogCont
 			ts: new Date().toISOString(),
 			level: entryLevel,
 			msg: message,
+			plugin: PLUGIN_NAME,
 			...ctx,
 			...extra,
 		};
@@ -71,7 +75,7 @@ export function createLogger(config: Pick<GuardConfig, "logging">, ctx?: LogCont
 			// Best effort only.
 		}
 		if (entryLevel === "warn" || entryLevel === "error") {
-			process.stderr.write(`[pi-guard] ${entryLevel}: ${message}\n`);
+			process.stderr.write(`[${PLUGIN_NAME}] ${entryLevel}: ${message}\n`);
 		}
 	};
 

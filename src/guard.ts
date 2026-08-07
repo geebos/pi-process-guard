@@ -294,6 +294,10 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 
 	// 6. Hand over final cleanup to the janitor and wait for it.
 	updateState(stateDir, { phase: "terminating" });
+	// Baseline of processes still in the runtime domain before the janitor
+	// sweeps it (docs/tech.md §11). The janitor's own stderr is swallowed, so
+	// the launcher reports the result to the terminal.
+	const domainBefore = await countDomain(backend);
 	const deadline = Date.now() + config.termGraceMs + config.killVerifyMs + 5000;
 	let janitorDone = false;
 	while (Date.now() < deadline) {
@@ -303,6 +307,9 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}
+
+	const domainAfter = await countDomain(backend);
+	const cleaned = domainBefore >= 0 && domainAfter >= 0 ? Math.max(0, domainBefore - domainAfter) : 0;
 
 	if (!janitorDone) {
 		log.error("janitor did not finish cleanup in time", { action: "janitor-timeout", janitorPid: currentJanitorPid });
@@ -317,7 +324,19 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 		deleteStateDir(stateDir);
 	}
 
+	log.info("runtime cleanup done", { action: "runtime-cleanup", cleaned: String(cleaned), janitorDone: String(janitorDone) });
+	process.stderr.write(`[pi-process-guard] runtime cleanup: terminated ${cleaned} process(es)\n`);
+
 	return exitCode ?? 1;
+}
+
+/** Processes currently in the runtime domain; -1 when not measurable. */
+async function countDomain(backend: import("./platform/index.ts").GuardBackend): Promise<number> {
+	try {
+		return (await backend.snapshot()).trackedProcesses;
+	} catch {
+		return -1;
+	}
 }
 
 async function waitForJanitorReady(stateDir: string, timeoutMs: number, log: ReturnType<typeof createLogger>): Promise<boolean> {

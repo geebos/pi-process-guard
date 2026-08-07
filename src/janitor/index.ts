@@ -54,23 +54,37 @@ function main(): void {
 
 	let cleaning = false;
 
+	/** Processes currently in the runtime domain (or -1 when not measurable). */
+	async function countDomain(backend: GuardBackend): Promise<number> {
+		try {
+			return (await backend.snapshot()).trackedProcesses;
+		} catch {
+			return -1;
+		}
+	}
+
 	async function cleanupAndExit(s: GuardStateFile): Promise<never> {
 		if (cleaning) process.exit(0); // already running; do not double-enter
 		cleaning = true;
 		log.info("final cleanup started", { phase: s.phase, backend: s.backend, pgid: s.piPgid, unit: s.runtimeUnit });
 		try {
 			const backend = await backendFor(s);
+			const before = await countDomain(backend);
 			const result = await termThenKill(backend, {
 				termGraceMs: config.termGraceMs,
 				killVerifyMs: config.killVerifyMs,
 				log,
 			});
+			const after = await countDomain(backend);
+			const cleaned = before >= 0 && after >= 0 ? Math.max(0, before - after) : 0;
 			const clean = await backend.isClean();
 			log.info("final cleanup finished", {
 				result: result.outcome,
 				clean: String(clean),
 				durationMs: String(result.durationMs),
+				cleaned: String(cleaned),
 			});
+			process.stderr.write(`[pi-process-guard] runtime cleanup: terminated ${cleaned} process(es)\n`);
 		} catch (err) {
 			log.error("final cleanup failed", { error: err instanceof Error ? err.message : String(err) });
 		}

@@ -30,9 +30,16 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { killProcessGroup, listPgidMembers, pidAlive } from "./process-info.ts";
+import { loadConfig } from "./config.ts";
+import { createLogger } from "./log.ts";
+
+const log = createLogger(loadConfig(), { action: "job-cleanup" });
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const WATCHDOG_INTERVAL_MS = 1000;
+
+/** True once a cleanup is in progress; guards against exit-path races. */
+let cleaning = false;
 
 export interface JobRecord {
 	jobId: string;
@@ -96,9 +103,16 @@ async function jobGroupMembers(pgid: number): Promise<number> {
 }
 
 async function terminateJobGroup(pgid: number, jobFile: string, exitCode: number): Promise<never> {
+	if (cleaning) process.exit(0);
+	cleaning = true;
+	const before = await jobGroupMembers(pgid);
 	killProcessGroup(pgid, "SIGTERM");
 	await sleep(300);
 	killProcessGroup(pgid, "SIGKILL");
+	const after = await jobGroupMembers(pgid);
+	const cleaned = before >= 0 && after >= 0 ? Math.max(0, before - after) : 0;
+	log.info("job cleanup", { pgid, cleaned: String(cleaned) });
+	process.stderr.write(`[pi-process-guard] job cleanup: terminated ${cleaned} process(es)\n`);
 	try {
 		rmSync(jobFile, { force: true });
 	} catch {
@@ -184,6 +198,8 @@ function main(): void {
 
 	child.on("exit", (code) => {
 		clearInterval(piWatchdog);
+		// A signal-triggered cleanup is already in flight; let it finish.
+		if (cleaning) return;
 		void (async () => {
 			const members = await jobGroupMembers(pgid);
 			if (members === 0) {
