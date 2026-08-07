@@ -1,7 +1,7 @@
 name: github-publish
 
-# Publishes as @geebos/pi-guard (GitHub Packages requires a scope).
-# Source package name stays "pi-guard" for npm.
+# Publishes as @geebos/pi-process-guard (GitHub Packages requires a scope).
+# Source package name stays "pi-process-guard" for npm.
 # Trigger is tag-only to avoid double-publish with GitHub Releases.
 on:
   push:
@@ -68,7 +68,7 @@ jobs:
 
       - name: Scope package for GitHub Packages
         run: |
-          npm pkg set name=@geebos/pi-guard
+          npm pkg set name=@geebos/pi-process-guard
           npm pkg set publishConfig.registry=https://npm.pkg.github.com
           npm pkg set publishConfig.access=restricted
 

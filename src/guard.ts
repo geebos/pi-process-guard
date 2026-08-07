@@ -262,10 +262,30 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 		return { sig, h };
 	});
 
+	// Janitor supervision: if the janitor dies while Pi is running, restart it
+	// so final cleanup still has an independent owner (docs/tech.md §25).
+	let currentJanitorPid = janitorPid;
+	let piExited = false;
+	const janitorWatchdog = setInterval(() => {
+		if (piExited || pidAlive(currentJanitorPid)) return;
+		log.warn("janitor died; restarting", { action: "janitor-restart", janitorPid: currentJanitorPid });
+		const replacement = spawn(process.execPath, [JANITOR_ENTRY, stateFile], {
+			detached: true,
+			stdio: "ignore",
+			env: janitorEnv,
+		});
+		replacement.unref();
+		currentJanitorPid = replacement.pid!;
+		updateState(stateDir, { janitorPid: currentJanitorPid });
+	}, config.janitor.heartbeatMs);
+	janitorWatchdog.unref?.();
+
 	let exitCode: number | null = null;
 	try {
 		exitCode = await started.exited;
 	} finally {
+		piExited = true;
+		clearInterval(janitorWatchdog);
 		for (const { sig, h } of handlers) process.removeListener(sig, h);
 		if (escalationTimer) clearTimeout(escalationTimer);
 	}
@@ -277,7 +297,7 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 	const deadline = Date.now() + config.termGraceMs + config.killVerifyMs + 5000;
 	let janitorDone = false;
 	while (Date.now() < deadline) {
-		if (!pidAlive(janitorPid) || !existsSync(stateFile)) {
+		if (!pidAlive(currentJanitorPid) || !existsSync(stateFile)) {
 			janitorDone = true;
 			break;
 		}
@@ -285,7 +305,7 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 	}
 
 	if (!janitorDone) {
-		log.error("janitor did not finish cleanup in time", { action: "janitor-timeout", janitorPid });
+		log.error("janitor did not finish cleanup in time", { action: "janitor-timeout", janitorPid: currentJanitorPid });
 		// Best-effort direct cleanup so the machine is never left with a live runtime.
 		try {
 			await backend.signalTerm();

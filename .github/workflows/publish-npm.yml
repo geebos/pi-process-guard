@@ -2,10 +2,10 @@ name: Publish to npm
 
 # Publish with npm Trusted Publishing (OIDC). No NPM_TOKEN.
 #
-# Prerequisites on npmjs.com → package "pi-guard" → Settings
+# Prerequisites on npmjs.com → package "pi-process-guard" → Settings
 # → Trusted Publisher → GitHub Actions:
 #   Organization or user : geebos
-#   Repository           : pi-guard
+#   Repository           : pi-process-guard
 #   Workflow filename    : publish-npm.yml
 #   Allowed actions      : npm publish
 #
@@ -81,8 +81,8 @@ jobs:
       - name: Ensure package name
         run: |
           NAME="$(node -p "require('./package.json').name")"
-          if [ "$NAME" != "pi-guard" ]; then
-            echo "Expected package name pi-guard, got: $NAME"
+          if [ "$NAME" != "pi-process-guard" ]; then
+            echo "Expected package name pi-process-guard, got: $NAME"
             exit 1
           fi
 

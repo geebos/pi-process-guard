@@ -146,6 +146,22 @@ npm run check    # typecheck + 测试
 需要 Node.js ≥ 22.18（TypeScript type stripping）。Linux backend 按
 `docs/tech.md` §7 开发，需 Linux CI 验证；macOS 与 process-group 路径由集成测试覆盖。
 
+## 发布
+
+推送版本 tag 会触发两个工作流（仅 tag 触发）：
+
+| 工作流 | 仓库 | 包名 |
+| --- | --- | --- |
+| **Publish to npm** | npmjs.com | `pi-process-guard` |
+| **github-publish** | GitHub Packages | `@geebos/pi-process-guard` |
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+npm 发布使用 Trusted Publishing（OIDC），无需 `NPM_TOKEN`。
+
 ## License
 
 [MIT](./LICENSE)

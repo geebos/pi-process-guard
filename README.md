@@ -157,6 +157,22 @@ Requires Node.js ≥ 22.18 (TypeScript type stripping). Linux backend behavior
 is developed per `docs/tech.md` §7 and requires Linux CI; macOS and the
 process-group path are exercised by the integration tests.
 
+## Publishing
+
+Pushing a version tag runs two workflows (tag-only):
+
+| Workflow | Registry | Package name |
+| --- | --- | --- |
+| **Publish to npm** | npmjs.com | `pi-process-guard` |
+| **github-publish** | GitHub Packages | `@geebos/pi-process-guard` |
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The npm publish uses Trusted Publishing (OIDC) — no `NPM_TOKEN` required.
+
 ## License
 
 [MIT](./LICENSE)
