@@ -1,0 +1,67 @@
+{
+  "name": "pi-guard",
+  "version": "1.0.0",
+  "description": "pi-guard — guard extension for pi coding agent (initial skeleton)",
+  "type": "module",
+  "main": "./extensions/index.ts",
+  "bin": {
+    "pi-guard": "./bin/pi-guard.ts",
+    "pi-guard-janitor": "./src/janitor/index.ts"
+  },
+  "files": [
+    "bin/",
+    "extensions/",
+    "src/",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
+    "check": "npm run typecheck && npm test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "guard"
+  ],
+  "author": "tianhetonghua",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geebos/pi-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/geebos/pi-guard/issues"
+  },
+  "homepage": "https://github.com/geebos/pi-guard#readme",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
+    "@types/node": "22.20.1",
+    "typebox": "1.3.8",
+    "typescript": "5.9.3"
+  }
+}
