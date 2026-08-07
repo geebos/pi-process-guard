@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
     "check": "npm run typecheck && npm test",
-    "publish:local": "npm version patch --no-git-tag-version && npm publish --registry http://localhost:4873"
+    "publish:local": "npm version patch --no-git-tag-version && npm publish --registry http://localhost:9007"
   },
   "keywords": [
     "pi-package",
