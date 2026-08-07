@@ -19,10 +19,19 @@ import type { GuardBackendKind, GuardConfig, GuardStateFile } from "./types.ts";
 
 const JANITOR_ENTRY = resolveJanitorEntry();
 
+/**
+ * Locate the janitor entry Node can actually execute. Compiled packages ship
+ * JS under dist/ (Node refuses to type-strip .ts inside node_modules); the
+ * workspace layout resolves the source .ts instead.
+ */
 function resolveJanitorEntry(): string {
-	const base = fileURLToPath(new URL("./janitor/index.", import.meta.url));
-	for (const ext of ["ts", "js"]) {
-		const candidate = `${base}${ext}`;
+	const here = fileURLToPath(new URL(".", import.meta.url)); // src/ or dist/src/
+	const candidates = [
+		join(here, "janitor", "index.js"), // compiled layout: dist/src/janitor/
+		join(here, "..", "dist", "src", "janitor", "index.js"), // workspace with dist/ built
+		join(here, "janitor", "index.ts"), // plain workspace run
+	];
+	for (const candidate of candidates) {
 		if (existsSync(candidate)) return candidate;
 	}
 	throw new Error("pi-process-guard: cannot resolve janitor entry");

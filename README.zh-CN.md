@@ -145,10 +145,15 @@ PI_PROCESS_GUARD_LOG=debug             日志级别
 ```bash
 npm install
 npm run check    # typecheck + 测试
+npm run build    # 将 src/ 与 bin/ 编译为 dist/（JS）
 ```
 
-需要 Node.js ≥ 22.18（TypeScript type stripping）。Linux backend 按
-`docs/tech.md` §7 开发，需 Linux CI 验证；macOS 与 process-group 路径由集成测试覆盖。
+发布前会自动执行 `npm run build`（`prepublishOnly`）：`pi-guard` /
+`pi-guard-janitor` 可执行文件与 `session-exec` 入口都 spawn **编译后的 JS**（`dist/`），
+因为 Node 拒绝 type-strip `node_modules` 内的 `.ts` 文件。在仓库内（文件不在
+`node_modules` 下）同一入口会回退解析到 TypeScript 源码，依赖 Node ≥ 22.18
+type stripping。Linux backend 按 `docs/tech.md` §7 开发，需 Linux CI 验证；
+macOS 与 process-group 路径由集成测试覆盖。
 
 ## 发布
 

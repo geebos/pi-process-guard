@@ -156,11 +156,17 @@ Logs (never full command lines): `~/.pi/agent/logs/process-guard.log`
 ```bash
 npm install
 npm run check    # typecheck + tests
+npm run build    # compile src/ + bin/ to dist/ (JS)
 ```
 
-Requires Node.js ≥ 22.18 (TypeScript type stripping). Linux backend behavior
-is developed per `docs/tech.md` §7 and requires Linux CI; macOS and the
-process-group path are exercised by the integration tests.
+The published package runs `npm run build` automatically before publishing
+(`prepublishOnly`): the `pi-guard` / `pi-guard-janitor` binaries and the
+`session-exec` entry spawn **compiled JS** from `dist/`, because Node refuses
+to type-strip `.ts` files inside `node_modules`. In the workspace (files are
+not under `node_modules`) the same entries resolve to the TypeScript sources
+and rely on Node ≥ 22.18 type stripping. Linux backend behavior is developed
+per `docs/tech.md` §7 and requires Linux CI; macOS and the process-group path
+are exercised by the integration tests.
 
 ## Publishing
 

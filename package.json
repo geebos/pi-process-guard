@@ -1,23 +1,26 @@
 {
   "name": "pi-process-guard",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "pi-guard — guard extension for pi coding agent (initial skeleton)",
   "type": "module",
   "main": "./extensions/index.ts",
   "bin": {
-    "pi-guard": "./bin/pi-guard.ts",
-    "pi-guard-janitor": "./src/janitor/index.ts"
+    "pi-guard": "./dist/bin/pi-guard.js",
+    "pi-guard-janitor": "./dist/src/janitor/index.js"
   },
   "files": [
     "bin/",
     "extensions/",
     "src/",
+    "dist/",
     "README.md",
     "README.zh-CN.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
     "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
     "check": "npm run typecheck && npm test",
     "publish:local": "npm version patch --no-git-tag-version && npm publish --registry http://localhost:9007"

@@ -17,7 +17,27 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { killProcessGroup, listPgidMembers } from "./process-info.ts";
 
-const EXECUTOR_ENTRY = fileURLToPath(new URL("./session-exec.ts", import.meta.url));
+/**
+ * Locate the session-exec entry Node can actually execute.
+ *
+ * Published packages ship compiled JS under dist/ — Node refuses to type-strip
+ * .ts files inside node_modules — while the workspace runs the same file as
+ * .ts (project files are not subject to the node_modules restriction).
+ */
+function resolveExecutorEntry(): string {
+	const here = fileURLToPath(new URL(".", import.meta.url));
+	const candidates = [
+		join(here, "session-exec.js"), // compiled layout: dist/src/
+		join(here, "..", "dist", "session-exec.js"), // workspace with dist/ built: src/ → dist/src/
+		join(here, "session-exec.ts"), // plain workspace run: src/
+	];
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) return candidate;
+	}
+	return candidates[2]!;
+}
+
+const EXECUTOR_ENTRY = resolveExecutorEntry();
 
 export interface SessionJob {
 	id: string;

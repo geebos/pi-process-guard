@@ -26,7 +26,8 @@ if (process.env.PI_PROCESS_GUARD_INNER) {
 	fail("refusing to launch: PI_PROCESS_GUARD_INNER is set (launcher recursion?)", 2);
 }
 
-// The launcher/janitor run as TypeScript and rely on Node's type stripping.
+// Published binaries are compiled to JS (dist/); in the workspace the
+// launcher runs as TypeScript and relies on Node's type stripping.
 const tsSupport = (process.features as { typescript?: boolean }).typescript;
 if (!tsSupport) {
 	fail("requires Node.js >= 22.18 with TypeScript type stripping", 2);
