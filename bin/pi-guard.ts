@@ -34,7 +34,7 @@ if (!tsSupport) {
 }
 
 const args = process.argv.slice(2);
-if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
+if (args[0] === "--help" || args[0] === "-h") {
 	process.stdout.write(
 		[
 			"Usage: pi-guard [pi args...]",
