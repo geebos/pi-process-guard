@@ -1,12 +1,15 @@
 /**
- * Linux systemd backend: runs the Pi runtime inside a transient user service
- * (cgroup). Everything Pi forks inherits the unit's cgroup, so ownership
- * survives reparenting and double-forking (docs/tech.md §7).
+ * Linux systemd backend: runs the Pi runtime inside a transient user scope
+ * (cgroup) (docs/pi-guard-startup-flow.md §15).
  *
- * Cleanup prefers letting systemd do the work via `systemctl stop` with
+ * `systemd-run --user --scope` creates a transient scope; everything Pi forks
+ * inherits the scope's cgroup, so ownership survives reparenting and
+ * double-forking. Cleanup lets systemd do the work via `systemctl stop` with
  * KillMode=control-group / KillSignal=SIGTERM / SendSIGKILL=yes /
- * TimeoutStopSec=<termGrace>; an explicit `systemctl kill` escalates when
- * processes survive.
+ * TimeoutStopSec=<termGrace>; `systemctl kill` escalates when processes
+ * survive.
+ *
+ * Unit naming: pi-guard-<shortGuardId>.scope (docs §9 — never PID-based).
  *
  * NOTE: developed on macOS and not exercised locally — requires Linux CI.
  */
@@ -30,7 +33,7 @@ function runSystemctl(args: string[]): Promise<{ code: number; stdout: string; s
 	});
 }
 
-/** Probe whether a usable `systemd --user` manager exists. */
+/** Probe whether a usable `systemd --user` manager exists (docs §7.4). */
 export async function systemdUserAvailable(): Promise<boolean> {
 	if (!process.env.XDG_RUNTIME_DIR) return false;
 	try {
@@ -58,7 +61,7 @@ const PASS_THROUGH_ENV = [
 ];
 
 export function createSystemdBackend(config: GuardConfig, state: BackendContext): GuardBackend {
-	const unit = state.runtimeUnit;
+	let unit: string | undefined = state.runtimeUnit;
 
 	const unitPropertyArgs = () => [
 		`--property=KillMode=control-group`,
@@ -86,28 +89,30 @@ export function createSystemdBackend(config: GuardConfig, state: BackendContext)
 
 		async start(target): Promise<BackendStarted> {
 			const prefix = config.linux.systemdUnitPrefix;
-			const unitName = `${prefix}-${state.guardId}.service`;
-			state.runtimeUnit = unitName;
+			const shortId = state.guardId.slice(0, 8);
+			const unitName = `${prefix}-${shortId}.scope`;
+			unit = unitName;
 
 			const envArgs: string[] = [];
 			const envKeys = new Set<string>([
 				...PASS_THROUGH_ENV,
-				...Object.keys(target.env).filter((k) => k.startsWith("PI_PROCESS_GUARD_")),
+				...Object.keys(target.env).filter((k) => k.startsWith("PI_PROCESS_GUARD_") || k.startsWith("PI_GUARD_")),
 			]);
 			for (const key of envKeys) {
 				const value = target.env[key];
 				if (value !== undefined) envArgs.push("--setenv", `${key}=${value}`);
 			}
 
-			// systemd-run --wait blocks until the unit exits and mirrors its exit
-			// code, letting the launcher preserve Pi's exit status.
+			// systemd-run --scope runs the command in the foreground inside a
+			// transient scope, mirrors its exit code, and --collect reclaims the
+			// unit once empty.
 			const runner = spawn(
 				"systemd-run",
 				[
 					"--user",
-					"--wait",
+					"--scope",
+					"--quiet",
 					"--collect",
-					"--service-type=exec",
 					`--unit=${unitName}`,
 					...unitPropertyArgs(),
 					...envArgs,
@@ -118,7 +123,7 @@ export function createSystemdBackend(config: GuardConfig, state: BackendContext)
 				{ stdio: "inherit", env: target.env },
 			);
 
-			// Poll for the main PID: transient service becomes active shortly.
+			// Poll for the main PID: the scope becomes active shortly.
 			const piPid = await (async () => {
 				const deadline = Date.now() + 10_000;
 				while (Date.now() < deadline) {

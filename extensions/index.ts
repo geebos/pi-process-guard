@@ -1,36 +1,71 @@
 /**
- * pi-process-guard extension entry.
+ * pi-process-guard extension entry
+ * (docs/pi-guard-startup-flow.md §18, §32, §39).
  *
- * Phase 1: session lifecycle, /process-guard diagnostics, launcher warning.
- * Phase 2: session-owned bash management — `tool_call` rewrites bash tool
- * commands and `user_bash` provides custom operations so every shell command
- * runs inside a session-owned process group that /new, /resume, /fork and
- * /reload terminate (docs/tech.md §9).
+ * Responsibilities (docs §32 — never the source of truth for runtime
+ * cleanup; that stays with launcher + janitor):
+ *   1. EXTENSION_READY handshake with the janitor (only when launched via
+ *      pi-guard; docs §18)
+ *   2. session lifecycle + session-owned process management
+ *   3. /process-guard diagnostics
+ *   4. passive warning when loaded without the pi-guard launcher (docs §14)
  *
- * Runtime-level ownership stays with the launcher + janitor; extension state
- * is never the source of truth across reloads (docs/tech.md §22.3).
+ * The extension is a singleton (docs §13.2): auto-discovery and an explicit
+ * --extension from the launcher must not double-initialize it.
  */
 
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, UserBashEvent, ToolCallEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { createSessionManager } from "../src/session-manager.ts";
-import { getSessionManager, setSessionManager, hasLauncher } from "../src/store.ts";
+import { getSessionManager, setSessionManager, hasLauncher, getRuntimeContext } from "../src/store.ts";
 import { registerGuardCommand } from "../src/command.ts";
 import { registerGuardTools } from "../src/tools.ts";
 import { loadConfig } from "../src/config.ts";
 import { createLogger, PLUGIN_NAME } from "../src/log.ts";
+import { connectToJanitor } from "../src/protocol.ts";
 
 const log = createLogger(loadConfig(), { action: "session" });
 
 /** Result of the most recent session cleanup, shown when the next session starts. */
 let lastCleanup: { stopped: number; at: number } | undefined;
 
+const SINGLETON_KEY = Symbol.for("pi-process-guard.extension.loaded");
+
+/** EXTENSION_READY handshake: confirms the bundled extension really loaded (docs §18.1). */
+async function notifyExtensionReady(runtime: ReturnType<typeof getRuntimeContext>): Promise<void> {
+	const socketPath = runtime.socketPath;
+	if (!socketPath) return;
+	try {
+		const client = await connectToJanitor(socketPath, 1000);
+		client.send({
+			type: "EXTENSION_READY",
+			guardId: runtime.guardId!,
+			piPid: process.pid,
+		});
+		setTimeout(() => client.close(), 50);
+	} catch {
+		// The janitor may be gone; the launcher's fail-closed monitor handles
+		// it. Never crash the extension over the handshake.
+	}
+}
+
 export default function (pi: ExtensionAPI) {
+	// Singleton guard (docs §13.2): auto-discovery + explicit -e injection.
+	const g = globalThis as Record<symbol, unknown>;
+	if (g[SINGLETON_KEY]) return;
+	g[SINGLETON_KEY] = true;
+
 	const sessionManager = createSessionManager();
 	setSessionManager(sessionManager);
 
 	let launcherWarningShown = false;
+
+	// EXTENSION_READY handshake (docs §18.1).
+	const runtime = getRuntimeContext();
+	if (runtime.active) {
+		void notifyExtensionReady(runtime);
+	}
 
 	pi.on("session_start", (event, ctx) => {
 		sessionManager.beginSession(randomUUID());
@@ -48,8 +83,7 @@ export default function (pi: ExtensionAPI) {
 			launcherWarningShown = true;
 			ctx.ui.notify(
 				"Process Guard extension loaded without pi-guard launcher. " +
-					"Session cleanup is enabled, but arbitrary extension processes " +
-					"cannot be guaranteed to be reclaimed on Pi exit.",
+					"Runtime process cleanup guarantee is inactive. Start with: pi-guard",
 				"warning",
 			);
 		}
@@ -59,8 +93,8 @@ export default function (pi: ExtensionAPI) {
 		const sm = getSessionManager();
 		if (!sm) return;
 		// Session-scoped cleanup only: /new, /resume, /fork, /reload must never
-		// touch runtime-level processes (docs/tech.md §10.2). On "quit" the
-		// janitor performs the runtime-level final sweep.
+		// touch runtime-level processes (docs §33.2). On "quit" the janitor
+		// performs the runtime-level final sweep.
 		const pending = sm.pendingJobCount();
 		// Announce the cleanup BEFORE waiting on it, so the /new pause is
 		// understood as "stopping processes", not a hang. warning renders as a

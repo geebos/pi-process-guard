@@ -18,6 +18,16 @@ import { waitFor } from "../helpers.ts";
 const EXT_ENTRY = fileURLToPath(new URL("../../extensions/index.ts", import.meta.url));
 const CWD = fileURLToPath(new URL("../..", import.meta.url));
 
+/**
+ * The extension is a process-wide singleton (docs §13.2). pi's loader runs
+ * the factory on every discover call, so tests that reload the extension in
+ * the same process must reset the singleton first.
+ */
+const SINGLETON_KEY = Symbol.for("pi-process-guard.extension.loaded");
+function resetSingleton(): void {
+	delete (globalThis as Record<symbol, unknown>)[SINGLETON_KEY];
+}
+
 function mockCtx(notices: { message: string; type: string }[]): ExtensionContext {
 	return {
 		ui: {
@@ -27,6 +37,7 @@ function mockCtx(notices: { message: string; type: string }[]): ExtensionContext
 }
 
 test("extension loads and registers commands + lifecycle handlers", { timeout: 30000 }, async () => {
+	resetSingleton();
 	const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
 	assert.deepEqual(result.errors, [], "extension must load without errors");
 
@@ -58,6 +69,7 @@ test("extension loads and registers commands + lifecycle handlers", { timeout: 3
 });
 
 test("tool_call wraps bash commands into session-owned executors", { timeout: 30000 }, async () => {
+	resetSingleton();
 	const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
 	assert.deepEqual(result.errors, []);
 	const ext = result.extensions[0]!;
@@ -93,6 +105,7 @@ test("tool_call wraps bash commands into session-owned executors", { timeout: 30
 });
 
 test("user_bash returns custom operations that wrap the command", { timeout: 30000 }, async () => {
+	resetSingleton();
 	const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
 	assert.deepEqual(result.errors, []);
 	const ext = result.extensions[0]!;
@@ -119,6 +132,7 @@ test("user_bash returns custom operations that wrap the command", { timeout: 300
 
 test("session_shutdown prints the plugin name and cleaned job count", { timeout: 30000 }, async () => {
 	// Isolate the state root so the test never touches the real user cache.
+	resetSingleton();
 	const stateRoot = join(mkdtempSync(join(tmpdir(), "pi-guard-ext-")), "root");
 	const prevStateRoot = process.env.PI_PROCESS_GUARD_STATE_ROOT;
 	process.env.PI_PROCESS_GUARD_STATE_ROOT = stateRoot;
@@ -150,7 +164,7 @@ test("session_shutdown prints the plugin name and cleaned job count", { timeout:
 		// inspects the filesystem (jiti loads its own store.ts instance, so the
 		// module-level session manager is not shared with this test process).
 		await waitFor(async () => {
-			const sessionsRoot = join(stateRoot, "pi-process-guard", "sessions");
+			const sessionsRoot = join(stateRoot, "sessions");
 			if (!existsSync(sessionsRoot)) return false;
 			return readdirSync(sessionsRoot).some((s) => {
 				const jobsDir = join(sessionsRoot, s, "jobs");
@@ -186,6 +200,7 @@ test("session_shutdown prints the plugin name and cleaned job count", { timeout:
 
 test("/plugin:pg enable/disable persists to the config file", { timeout: 30000 }, async () => {
 	// Isolated config path so the real ~/.pi/agent config is never touched.
+	resetSingleton();
 	const dir = mkdtempSync(join(tmpdir(), "pi-guard-pg-"));
 	const configPath = join(dir, "process-guard.json");
 	const prev = process.env.PI_PROCESS_GUARD_CONFIG;

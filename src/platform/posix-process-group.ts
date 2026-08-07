@@ -2,13 +2,13 @@
  * POSIX process-group backend (macOS, and Linux fallback when systemd is
  * unavailable). The Pi process is spawned `detached`, making it the leader of
  * its own session and process group with PGID = Pi PID. All ordinary
- * descendants inherit that group (docs/tech.md §8.2).
+ * descendants inherit that group (docs/pi-guard-startup-flow.md §17).
  *
- * Because a descendant can escape with setsid(), the backend also maintains a
- * descendant registry (sampled from the PPID tree) and sweeps escaped
- * processes by PID + start identity during cleanup (docs/tech.md §8.3–§8.5).
+ * Because a descendant can escape with setsid(), the janitor maintains a
+ * descendant registry (sampled from the PPID tree, docs §21) and the backend
+ * sweeps escaped processes by PID + start identity during cleanup.
  *
- * Safety rules (docs/tech.md §19.1):
+ * Safety rules (docs §29):
  * - only processes owned by the current user are ever signalled;
  * - the domain is signalled as a group when every member is owned, otherwise
  *   owned members are signalled individually and others are left alone;
@@ -25,7 +25,8 @@ import { getStartIdentity, listPgidMembers, pidAlive } from "../process-info.ts"
 
 export function createProcessGroupBackend(config: GuardConfig, state: BackendContext): GuardBackend {
 	const owner = userInfo().username;
-	const pgid = state.pgid;
+	// Mutable: start() sets it once Pi is spawned (PGID = Pi PID).
+	let pgid = state.pgid;
 	// Registry entries loaded from disk (janitor path) or built by sampling.
 	let escaped: TrackedProcess[] = [];
 	if (state.registryPath) {
@@ -99,24 +100,11 @@ export function createProcessGroupBackend(config: GuardConfig, state: BackendCon
 			});
 			const piPid = child.pid!;
 			const startedPgid = piPid; // detached child: session+group leader, PGID = PID
+			pgid = startedPgid;
 			state.pgid = startedPgid;
 
-			// Start the descendant registry sampler once the runtime is up.
-			if (state.registryPath) {
-				const tracker = new ProcessTracker(piPid, owner);
-				const tick = async (): Promise<void> => {
-					try {
-						await tracker.sample();
-						escaped = tracker.snapshot();
-						tracker.writeTo(state.registryPath!);
-					} catch {
-						// Sampling failure: degrade to PGID-only (docs/tech.md §25).
-					}
-				};
-				void tick();
-				const interval = setInterval(tick, Math.max(250, config.macos.registryIntervalMs));
-				interval.unref?.();
-			}
+			// Descendant sampling is the janitor's job (docs §21); the backend
+			// only consumes the persisted registry during cleanup.
 
 			const exited = new Promise<number | null>((resolve) => {
 				child.on("exit", (code, signal) => resolve(signal ? null : code));

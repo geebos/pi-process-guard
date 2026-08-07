@@ -24,6 +24,9 @@ export function testConfig(stateRoot: string): GuardConfig {
 		signalExitGraceMs: 2000,
 		stateRoot,
 		janitor: { ...DEFAULT_CONFIG.janitor, heartbeatMs: 100, orphanGraceMs: 1500 },
+		// The test fixtures do not load the bundled guard extension, so the
+		// EXTENSION_READY wait is disabled (docs §18.3).
+		extension: { ...DEFAULT_CONFIG.extension, readyTimeoutMs: 0 },
 		macos: { ...DEFAULT_CONFIG.macos, registryIntervalMs: 100 },
 		linux: { ...DEFAULT_CONFIG.linux, backend: "process-group" },
 		logging: { level: "error", file: join(stateRoot, "guard-test.log") },
@@ -58,6 +61,9 @@ export async function startGuard(opts: StartGuardOptions = {}): Promise<GuardHar
 		targetBin: process.execPath,
 		targetArgs: [FIXTURE],
 		config,
+		// The fixture is a plain node script, not a real `pi` CLI: it has no
+		// --extension support, so the guard extension injection is skipped.
+		injectExtension: false,
 		env: {
 			...process.env,
 			...opts.env,
@@ -70,8 +76,15 @@ export async function startGuard(opts: StartGuardOptions = {}): Promise<GuardHar
 			started = { ...info, pgid: info.pgid ?? 0 };
 		},
 	});
-
-	while (!started) await sleep(10);
+	// Fail fast when the guard dies before Pi comes up, instead of polling forever.
+	await Promise.race([
+		(async () => {
+			while (!started) await sleep(10);
+		})(),
+		exitPromise.then(() => {
+			throw new Error("runGuard exited before the runtime started");
+		}),
+	]);
 	return { exitPromise, ...started };
 }
 

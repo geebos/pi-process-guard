@@ -1,17 +1,41 @@
 /**
  * Extension commands: /process-guard (diagnostics) and /guard (config).
- * See docs/tech.md §17.
+ * See docs/pi-guard-startup-flow.md §34.
+ *
+ * The report is built from the runtime state file + the guard environment —
+ * never guessed (docs §34: "Extension 通过 runtime socket/state 获取信息,
+ * 不自己猜").
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { loadConfig, saveFileConfig } from "./config.ts";
-import { readState } from "./guard-state.ts";
+import { readState, stateFilePath } from "./guard-state.ts";
 import { listPgidMembers, pidAlive } from "./process-info.ts";
 import { getRuntimeContext, getSessionManager, hasLauncher } from "./store.ts";
 
 function reportToUser(ctx: ExtensionCommandContext, report: string): void {
 	ctx.ui.notify(report, "info");
+}
+
+function protectionLabel(backend: string | undefined): string {
+	switch (backend) {
+		case "systemd-cgroup":
+			return "strong";
+		case "process-group":
+			return process.platform === "darwin" ? "best-effort-high" : "degraded";
+		default:
+			return "unknown";
+	}
+}
+
+function formatAge(createdAt: number): string {
+	const total = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const s = total % 60;
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
 function baseReport(): string[] {
@@ -20,26 +44,37 @@ function baseReport(): string[] {
 	const lines: string[] = ["Pi Process Guard"];
 	lines.push(`Platform:        ${process.platform} ${process.arch}`);
 	lines.push(`Launcher:        ${hasLauncher() ? "active" : "not loaded"}`);
-	if (ctx.guardId) {
-		lines.push(`Guard ID:        ${ctx.guardId.slice(0, 8)}…`);
-		lines.push(`Backend:         ${ctx.backend ?? "unknown"}`);
-		if (ctx.pgid) lines.push(`Runtime PGID:    ${ctx.pgid}`);
-		if (ctx.unit) lines.push(`Unit:            ${ctx.unit}`);
-		if (ctx.janitorPid) lines.push(`Janitor:         ${pidAlive(ctx.janitorPid) ? "active" : "missing"}`);
+
+	const state = ctx.runtimeDir ? readState(ctx.runtimeDir) : undefined;
+	if (!ctx.active) {
+		lines.push("Protection:      none (start with: pi-guard)");
+		return lines;
 	}
-	if (session) {
-		lines.push(`Session ID:      ${session.currentSessionId ? session.currentSessionId.slice(0, 8) + "…" : "none"}`);
-		lines.push(`Tracked session: ${session.jobCount} jobs`);
-	}
+
+	const stateLabel = state?.state === "running" ? "RUNNING" : state?.state ?? "unknown";
+	lines.push(`Guard ID:        ${(ctx.guardId ?? "").slice(0, 8)}…`);
+	lines.push(`State:           ${stateLabel}`);
+	lines.push(`Launcher PID:    ${state?.launcherPid ?? ctx.launcherPid ?? "?"}`);
+	lines.push(`Janitor PID:     ${state?.janitorPid ?? "?"}`);
+	lines.push(`Pi PID:          ${state?.piPid ?? process.pid}`);
+	lines.push(`Backend:         ${ctx.backend ?? state?.backend ?? "unknown"}`);
+	if (state?.runtimeUnit) lines.push(`Unit:            ${state.runtimeUnit}`);
+	if (state?.piPgid) lines.push(`Runtime PGID:    ${state.piPgid}`);
+	lines.push(`Protection:      ${protectionLabel(ctx.backend ?? state?.backend)}`);
+	lines.push(`Janitor:         ${state?.janitorPid && pidAlive(state.janitorPid) ? "healthy" : "missing"}`);
+	lines.push(`Extension:       ${state?.extensionReadyAt ? "ready" : "pending"}`);
+	if (state) lines.push(`Runtime age:     ${formatAge(state.createdAt)}`);
 	return lines;
 }
 
 async function runtimeProcessLines(): Promise<string[]> {
 	const ctx = getRuntimeContext();
-	if (!ctx.pgid) return ["Tracked runtime: no process group (no launcher)"];
+	const state = ctx.runtimeDir ? readState(ctx.runtimeDir) : undefined;
+	const pgid = state?.piPgid;
+	if (!pgid) return ["Tracked runtime: no process group (no launcher)"];
 	try {
-		const members = await listPgidMembers(ctx.pgid);
-		const lines = [`Tracked runtime: ${members.length} processes in PGID ${ctx.pgid}`];
+		const members = await listPgidMembers(pgid);
+		const lines = [`Tracked runtime: ${members.length} processes in PGID ${pgid}`];
 		for (const m of members) {
 			lines.push(`  ${m.pid}  ppid=${m.ppid}  ${m.comm}`);
 		}
@@ -68,22 +103,19 @@ async function doctorReport(): Promise<string[]> {
 	};
 
 	check(hasLauncher(), "launcher handshake", ctx.guardId ? ctx.guardId.slice(0, 8) + "…" : undefined);
-	if (ctx.stateFile) {
-		const state = existsSync(ctx.stateFile) ? readState(ctx.stateFile) : undefined;
-		check(Boolean(state), "state file", ctx.stateFile);
-		if (state) {
-			check(state.phase === "running" || state.phase === "terminating", `state phase (${state.phase})`);
-			check(pidAlive(state.launcherPid), "launcher pid alive");
-			check(pidAlive(state.piPid), "pi pid alive");
-		}
+	const state = ctx.runtimeDir ? readState(ctx.runtimeDir) : undefined;
+	if (ctx.runtimeDir && state) {
+		check(true, "state file", stateFilePath(ctx.runtimeDir));
+		check(state.state === "running" || state.state === "cleaning", `runtime state (${state.state})`);
+		check(pidAlive(state.launcherPid), "launcher pid alive");
+		check(pidAlive(state.piPid), "pi pid alive");
+		if (state.janitorPid) check(pidAlive(state.janitorPid), "janitor pid alive");
 	} else {
-		check(false, "state file", "not set (no launcher)");
+		check(false, "state file", ctx.runtimeDir ? "unreadable" : "not set (no launcher)");
 	}
-	if (ctx.janitorPid) check(pidAlive(ctx.janitorPid), "janitor pid alive");
-	else check(false, "janitor pid", "not set (no launcher)");
-	if (ctx.pgid) {
+	if (state?.piPgid) {
 		try {
-			const members = await listPgidMembers(ctx.pgid);
+			const members = await listPgidMembers(state.piPgid);
 			check(true, "process group scan", `${members.length} owned processes`);
 		} catch (err) {
 			check(false, "process group scan", err instanceof Error ? err.message : String(err));
@@ -172,7 +204,7 @@ export function registerGuardCommand(pi: ExtensionAPI): void {
 				`TERM grace:      ${config.termGraceMs} ms`,
 				`KILL verify:     ${config.killVerifyMs} ms`,
 				`Janitor:         heartbeat ${config.janitor.heartbeatMs} ms, stale recovery ${config.janitor.staleRecovery ? "on" : "off"}`,
-				`Linux backend:   ${config.linux.backend}`,
+				`Linux backend:   ${config.linux.backend}${config.linux.requireCgroup ? " (require cgroup)" : ""}`,
 				`Log level:       ${config.logging.level}`,
 			];
 			reportToUser(ctx, lines.join("\n"));

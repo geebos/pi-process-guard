@@ -128,11 +128,10 @@ export class ProcessTracker {
 				existing.lastSeenPgid = row.pgid;
 				continue;
 			}
-			// New process: record it with its start identity. Sync fetch is fine
-			// here (rare, one ps call) but keep it non-blocking for the loop.
-			void this.captureIdentity(pid, row).then((tracked) => {
-				if (tracked) this.registered.set(pid, tracked);
-			});
+			// New process: capture its start identity before recording it, so
+			// snapshot()/writeTo() right after sample() already includes it.
+			const tracked = await this.captureIdentity(pid, row);
+			if (tracked) this.registered.set(pid, tracked);
 		}
 
 		// Drop processes that no longer exist.

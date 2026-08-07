@@ -1,6 +1,8 @@
 /**
- * Phase 4 hardening: the janitor dies while Pi runs; the launcher restarts it,
- * and the replacement janitor still performs the final cleanup (docs/tech.md §25).
+ * Fail-closed janitor supervision (docs/pi-guard-startup-flow.md §27,
+ * invariant 6): the janitor dies while Pi runs => the launcher must stop the
+ * runtime instead of letting Pi continue unguarded, and exit with the guard
+ * internal-failure code (70).
  */
 
 import { test } from "node:test";
@@ -10,15 +12,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { stateFilePath } from "../../src/guard-state.ts";
+import { EXIT_CODES } from "../../src/exit-codes.ts";
 import { pidAlive } from "../../src/process-info.ts";
 import { waitFor } from "../helpers.ts";
 
 const CLI = fileURLToPath(new URL("../../bin/pi-guard.ts", import.meta.url));
 const FIXTURE = fileURLToPath(new URL("../fixtures/pi-target.ts", import.meta.url));
 
-test("janitor death triggers launcher restart; replacement cleans up", { timeout: 60000 }, async () => {
-	const stateRoot = mkdtempSync(join(tmpdir(), "pi-guard-janitor-restart-"));
+test("janitor death triggers fail-closed runtime stop (exit 70)", { timeout: 60000 }, async () => {
+	const stateRoot = mkdtempSync(join(tmpdir(), "pi-guard-janitor-death-"));
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		PI_PROCESS_GUARD_TARGET_BIN: process.execPath,
@@ -30,13 +32,15 @@ test("janitor death triggers launcher restart; replacement cleans up", { timeout
 	};
 
 	const launcher = spawn(process.execPath, [CLI, FIXTURE], { env, stdio: "ignore" });
+	const exitPromise = new Promise<number | null>((resolve) => launcher.on("exit", (code) => resolve(code)));
 
-	const stateDir = join(stateRoot, "pi-process-guard");
+	// Wait for Pi + janitor to come up.
+	const runtimeRoot = join(stateRoot, "runtime");
 	await waitFor(
 		async () => {
-			const dirs = existsSync(stateDir) ? readdirSync(stateDir) : [];
+			const dirs = existsSync(runtimeRoot) ? readdirSync(runtimeRoot) : [];
 			if (dirs.length === 0) return false;
-			const s = JSON.parse(readFileSync(join(stateDir, dirs[0]!, "state.json"), "utf8")) as {
+			const s = JSON.parse(readFileSync(join(runtimeRoot, dirs[0]!, "state.json"), "utf8")) as {
 				piPid: number;
 				janitorPid: number;
 			};
@@ -45,31 +49,17 @@ test("janitor death triggers launcher restart; replacement cleans up", { timeout
 		10000,
 		100,
 	);
-	const dir = join(stateDir, readdirSync(stateDir)[0]!);
-	const stateFile = join(dir, "state.json");
+	const stateDir = join(runtimeRoot, readdirSync(runtimeRoot)[0]!);
+	const stateFile = join(stateDir, "state.json");
 	const initial = JSON.parse(readFileSync(stateFile, "utf8")) as { janitorPid: number; piPid: number };
 
-	// Kill the janitor.
+	// Kill the mandatory janitor.
 	process.kill(initial.janitorPid, "SIGKILL");
 	await waitFor(() => !pidAlive(initial.janitorPid), 5000);
 
-	// The launcher must restart it and update the state.
-	const restarted = await waitFor(
-		async () => {
-			const s = JSON.parse(readFileSync(stateFile, "utf8")) as { janitorPid: number };
-			return s.janitorPid !== initial.janitorPid && pidAlive(s.janitorPid);
-		},
-		10000,
-		100,
-	);
-	assert.equal(restarted, true, "launcher restarts the janitor");
-	const restartedState = JSON.parse(readFileSync(stateFile, "utf8")) as { janitorPid: number };
-	assert.equal(pidAlive(restartedState.janitorPid), true, "replacement janitor alive");
-
-	// Graceful Pi exit must be cleaned up by the replacement janitor.
-	process.kill(initial.piPid, "SIGTERM");
-	await waitFor(() => !pidAlive(initial.piPid), 8000);
-	const cleaned = await waitFor(() => !pidAlive(restartedState.janitorPid) && !existsSync(stateFile), 10000);
-	assert.equal(cleaned, true, "replacement janitor finishes final cleanup");
-	await launcher.kill?.();
+	// Fail-closed: the launcher must stop Pi and exit with the internal code.
+	const exitCode = await exitPromise;
+	assert.equal(exitCode, EXIT_CODES.INTERNAL, "launcher exits with guard internal failure (70)");
+	assert.equal(pidAlive(initial.piPid), false, "Pi must not continue unguarded after janitor death");
+	assert.equal(existsSync(stateFile), false, "runtime state dir is removed after fail-closed stop");
 });

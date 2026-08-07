@@ -39,7 +39,7 @@ test("launcher SIGKILL: janitor reclaims the orphaned runtime after grace", { ti
 	// Wait for the state file to appear and Pi to come up.
 	await waitFor(
 		async () => {
-			const file = join(stateRoot, "pi-process-guard");
+			const file = join(stateRoot, "runtime");
 			const dirs = existsSync(file) ? readdirSync(file) : [];
 			if (dirs.length === 0) return false;
 			const state = JSON.parse(readFileSync(join(file, dirs[0]!, "state.json"), "utf8")) as {
@@ -52,7 +52,7 @@ test("launcher SIGKILL: janitor reclaims the orphaned runtime after grace", { ti
 		100,
 	);
 
-	const stateDir = join(stateRoot, "pi-process-guard", readdirSync(join(stateRoot, "pi-process-guard"))[0]!);
+	const stateDir = join(stateRoot, "runtime", readdirSync(join(stateRoot, "runtime"))[0]!);
 	const state = JSON.parse(readFileSync(join(stateDir, "state.json"), "utf8")) as {
 		launcherPid: number;
 		piPid: number;

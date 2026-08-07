@@ -22,11 +22,14 @@ function expandHome(path: string): string {
 	return path;
 }
 
-/** Default state cache root: $XDG_CACHE_HOME or ~/.cache, shared by Linux and macOS. */
+/**
+ * Default state root: $XDG_CACHE_HOME/pi-process-guard or ~/.cache/pi-process-guard.
+ * Runtime dirs live under `<root>/runtime/<guardId>/` (docs §10).
+ */
 export function defaultStateRoot(env: NodeJS.ProcessEnv = process.env): string {
 	const xdg = env.XDG_CACHE_HOME;
-	if (xdg && xdg.trim()) return expandHome(xdg);
-	return join(homedir(), ".cache");
+	if (xdg && xdg.trim()) return join(expandHome(xdg), "pi-process-guard");
+	return join(homedir(), ".cache", "pi-process-guard");
 }
 
 /** Default log file location: ~/.pi/agent/logs/process-guard.log */
@@ -45,6 +48,10 @@ export const DEFAULT_CONFIG: GuardConfig = {
 		heartbeatMs: 1000,
 		staleRecovery: true,
 		orphanGraceMs: 10000,
+		readyTimeoutMs: 2000,
+	},
+	extension: {
+		readyTimeoutMs: 5000,
 	},
 	macos: {
 		registryIntervalMs: 1000,
@@ -52,6 +59,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
 	linux: {
 		backend: "auto",
 		systemdUnitPrefix: "pi-guard",
+		requireCgroup: false,
 	},
 	logging: {
 		level: "info",
@@ -116,7 +124,19 @@ export function loadFileConfig(path: string): Partial<GuardConfig> {
 				...(pick(janitor, "orphanGraceMs") !== undefined
 					? { orphanGraceMs: num(janitor.orphanGraceMs, DEFAULT_CONFIG.janitor.orphanGraceMs) }
 					: {}),
+				...(pick(janitor, "readyTimeoutMs") !== undefined
+					? { readyTimeoutMs: num(janitor.readyTimeoutMs, DEFAULT_CONFIG.janitor.readyTimeoutMs) }
+					: {}),
 			};
+		}
+		if (r.extension !== undefined) {
+			const extension = pick(r, "extension") as Record<string, unknown>;
+			if (pick(extension, "readyTimeoutMs") !== undefined) {
+				out.extension = {
+					...DEFAULT_CONFIG.extension,
+					readyTimeoutMs: num(extension.readyTimeoutMs, DEFAULT_CONFIG.extension.readyTimeoutMs),
+				};
+			}
 		}
 		if (r.macos !== undefined) {
 			const macos = pick(r, "macos") as Record<string, unknown>;
@@ -136,6 +156,9 @@ export function loadFileConfig(path: string): Partial<GuardConfig> {
 					: {}),
 				...(typeof pick(linux, "systemdUnitPrefix") === "string"
 					? { systemdUnitPrefix: pick(linux, "systemdUnitPrefix") as string }
+					: {}),
+				...(pick(linux, "requireCgroup") !== undefined
+					? { requireCgroup: bool(linux.requireCgroup, false) }
 					: {}),
 			};
 		}
@@ -188,6 +211,12 @@ export function applyEnvOverrides(base: GuardConfig, env: NodeJS.ProcessEnv = pr
 		cfg.janitor = { ...cfg.janitor, heartbeatMs: num(env.PI_PROCESS_GUARD_JANITOR_HEARTBEAT_MS, cfg.janitor.heartbeatMs) };
 	if (env.PI_PROCESS_GUARD_JANITOR_ORPHAN_GRACE_MS !== undefined)
 		cfg.janitor = { ...cfg.janitor, orphanGraceMs: num(env.PI_PROCESS_GUARD_JANITOR_ORPHAN_GRACE_MS, cfg.janitor.orphanGraceMs) };
+	if (env.PI_PROCESS_GUARD_JANITOR_READY_TIMEOUT_MS !== undefined)
+		cfg.janitor = { ...cfg.janitor, readyTimeoutMs: num(env.PI_PROCESS_GUARD_JANITOR_READY_TIMEOUT_MS, cfg.janitor.readyTimeoutMs) };
+	if (env.PI_PROCESS_GUARD_EXTENSION_READY_TIMEOUT_MS !== undefined)
+		cfg.extension = { ...cfg.extension, readyTimeoutMs: num(env.PI_PROCESS_GUARD_EXTENSION_READY_TIMEOUT_MS, cfg.extension.readyTimeoutMs) };
+	if (env.PI_PROCESS_GUARD_REQUIRE_CGROUP !== undefined)
+		cfg.linux = { ...cfg.linux, requireCgroup: bool(env.PI_PROCESS_GUARD_REQUIRE_CGROUP, false) };
 	return cfg;
 }
 
