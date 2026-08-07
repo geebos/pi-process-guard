@@ -23,6 +23,9 @@ import { createLogger, PLUGIN_NAME } from "../src/log.ts";
 
 const log = createLogger(loadConfig(), { action: "session" });
 
+/** Result of the most recent session cleanup, shown when the next session starts. */
+let lastCleanup: { stopped: number; at: number } | undefined;
+
 export default function (pi: ExtensionAPI) {
 	const sessionManager = createSessionManager();
 	setSessionManager(sessionManager);
@@ -31,6 +34,16 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", (event, ctx) => {
 		sessionManager.beginSession(randomUUID());
+		// The TUI is fully up here, unlike during session_shutdown, so a
+		// notification is reliably visible (status-bar notices sent during the
+		// shutdown of the old runtime get swallowed by the session switch).
+		if (lastCleanup) {
+			ctx.ui.notify(
+				`[${PLUGIN_NAME}] previous session cleanup: stopped ${lastCleanup.stopped} job(s)`,
+				"info",
+			);
+			lastCleanup = undefined;
+		}
 		if (!hasLauncher() && !launcherWarningShown) {
 			launcherWarningShown = true;
 			ctx.ui.notify(
@@ -49,11 +62,15 @@ export default function (pi: ExtensionAPI) {
 		// touch runtime-level processes (docs/tech.md §10.2). On "quit" the
 		// janitor performs the runtime-level final sweep.
 		const { stopped } = await sm.cleanupSession();
+		lastCleanup = { stopped, at: Date.now() };
 		log.info("session cleanup", {
 			cleaned: String(stopped),
 			sessionId: sm.currentSessionId,
 		});
+		// Best-effort TUI notice + terminal fallback (visible on the console
+		// after pi exits, since the TUI runs in an alternate screen).
 		ctx.ui.notify(`[${PLUGIN_NAME}] session cleanup: stopped ${stopped} job(s)`, "info");
+		process.stderr.write(`[${PLUGIN_NAME}] session cleanup: stopped ${stopped} job(s)\n`);
 	});
 
 	// Phase 2: wrap bash tool commands into session-owned process groups.

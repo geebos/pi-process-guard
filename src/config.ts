@@ -53,7 +53,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
 		systemdUnitPrefix: "pi-guard",
 	},
 	logging: {
-		level: "warn",
+		level: "info",
 		file: defaultLogFile(),
 	},
 	stateRoot: defaultStateRoot(),

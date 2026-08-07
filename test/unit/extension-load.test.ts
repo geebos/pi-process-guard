@@ -127,4 +127,11 @@ test("session_shutdown prints the plugin name and cleaned job count", { timeout:
 	const cleanupNotice = notices.find((n) => n.message.includes("pi-process-guard") && n.message.includes("session cleanup"));
 	assert.ok(cleanupNotice, "session cleanup prints the plugin name and job count");
 	assert.match(cleanupNotice!.message, /stopped \d+ job\(s\)/, "includes the cleaned job count");
+
+	// The next session_start must surface the previous cleanup in the TUI
+	// (session_shutdown-time notices are unreliable during the switch).
+	await startHandlers[0]({ type: "session_start", reason: "new" }, ctx);
+	const carryover = notices.find((n) => n.message.includes("previous session cleanup"));
+	assert.ok(carryover, "next session shows the previous cleanup result");
+	assert.match(carryover!.message, /stopped \d+ job\(s\)/, "carryover includes the cleaned job count");
 });
