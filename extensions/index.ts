@@ -1,19 +1,19 @@
 /**
  * pi-process-guard extension entry.
  *
- * Phase 1 responsibilities (docs/tech.md §6, §21):
- *   - session lifecycle: session_start -> new session id + registry
- *   - session_shutdown -> session-owned job cleanup (idempotent)
- *   - non-blocking warning when loaded without the pi-guard launcher
- *   - /process-guard and /guard commands
+ * Phase 1: session lifecycle, /process-guard diagnostics, launcher warning.
+ * Phase 2: session-owned bash management — `tool_call` rewrites bash tool
+ * commands and `user_bash` provides custom operations so every shell command
+ * runs inside a session-owned process group that /new, /resume, /fork and
+ * /reload terminate (docs/tech.md §9).
  *
- * Runtime-level ownership is held by the launcher + janitor, NOT by this
- * extension: extension state must not be the source of truth across
- * /reload and session switches (docs/tech.md §22.3).
+ * Runtime-level ownership stays with the launcher + janitor; extension state
+ * is never the source of truth across reloads (docs/tech.md §22.3).
  */
 
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, UserBashEvent, ToolCallEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { createSessionManager } from "../src/session-manager.ts";
 import { getSessionManager, setSessionManager, hasLauncher } from "../src/store.ts";
 import { registerGuardCommand } from "../src/command.ts";
@@ -45,6 +45,33 @@ export default function (pi: ExtensionAPI) {
 		// touch runtime-level processes (docs/tech.md §10.2). On "quit" the
 		// janitor performs the runtime-level final sweep.
 		await sm.cleanupSession();
+	});
+
+	// Phase 2: wrap bash tool commands into session-owned process groups.
+	pi.on("tool_call", (event: ToolCallEvent) => {
+		if (event.toolName !== "bash") return;
+		const sm = getSessionManager();
+		if (!sm) return;
+		const input = event.input as { command: string };
+		const wrapped = sm.wrapCommand(input.command);
+		if (wrapped !== input.command) {
+			input.command = wrapped;
+		}
+	});
+
+	// Phase 2: user `!` / `!!` commands go through the same session executor.
+	pi.on("user_bash", (event: UserBashEvent, _ctx: ExtensionContext) => {
+		const sm = getSessionManager();
+		if (!sm) return undefined;
+		const localExec = createLocalBashOperations();
+		return {
+			operations: {
+				exec: async (command, cwd, options) => {
+					const wrapped = sm.wrapCommand(command);
+					return localExec.exec(wrapped, cwd, options);
+				},
+			},
+		};
 	});
 
 	registerGuardTools(pi);

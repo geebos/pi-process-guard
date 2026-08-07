@@ -49,6 +49,17 @@ async function runtimeProcessLines(): Promise<string[]> {
 	}
 }
 
+function sessionJobLines(): string[] {
+	const sm = getSessionManager();
+	if (!sm) return ["Tracked session: no session manager"];
+	const records = sm.readJobRecords();
+	const lines = [`Tracked session: ${sm.jobCount} job(s) in ${sm.sessionDir ?? "(no session)"}`];
+	for (const r of records) {
+		lines.push(`  job ${r.jobId.slice(0, 8)}… pgid=${r.pgid} pid=${r.pid} started=${new Date(r.startedAt).toISOString()}`);
+	}
+	return lines;
+}
+
 async function doctorReport(): Promise<string[]> {
 	const ctx = getRuntimeContext();
 	const lines: string[] = ["Pi Process Guard — doctor"];
@@ -89,8 +100,8 @@ export function registerGuardCommand(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const sub = args.trim().split(/\s+/)[0] ?? "";
 			switch (sub) {
-				case "ps": {
-					const lines = [...baseReport(), ...(await runtimeProcessLines())];
+			case "ps": {
+					const lines = [...baseReport(), ...(await runtimeProcessLines()), ...sessionJobLines()];
 					reportToUser(ctx, lines.join("\n"));
 					break;
 				}

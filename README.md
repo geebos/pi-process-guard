@@ -66,6 +66,24 @@ pi
   reason (`quit`, `new`, `resume`, `fork`, `reload`)
 - Pi exit → janitor performs the runtime-level final sweep of the whole domain
 
+## Session-owned commands
+
+Every bash tool command and user `!` / `!!` command is wrapped into a
+**session-owned process group**: a small `session-exec` process runs the
+command detached, publishes a job record, and supervises it. Consequences:
+
+- `/new`, `/resume`, `/fork`, `/reload` terminate the previous session's
+  dev servers / watchers / background jobs (TERM → grace → KILL), while
+  runtime-level extension helpers stay untouched;
+- backgrounded commands (`npm run dev &`) keep running and stay tracked — a
+  detached watchdog reclaims them when the session ends or Pi dies;
+- if Pi is `SIGKILL`ed, the session jobs are still reclaimed by the watchdog,
+  because pi's own detached-child cleanup never runs on SIGKILL.
+
+Job records live on disk under
+`<stateRoot>/pi-process-guard/sessions/<sessionId>/`, so they survive
+`/reload`.
+
 ## Commands
 
 ```text

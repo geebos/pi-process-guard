@@ -60,6 +60,22 @@ pi
   （`quit`、`new`、`resume`、`fork`、`reload`）
 - Pi 退出 → janitor 对整个 runtime 域执行最终清理
 
+## Session 所属命令
+
+每个 bash tool 命令与用户 `!` / `!!` 命令都会包装进 **session 所属的
+process group**：一个小的 `session-exec` 进程 detached 运行命令、发布 job
+记录并监督它。效果：
+
+- `/new`、`/resume`、`/fork`、`/reload` 会终止旧 session 的 dev server /
+  watcher / 后台任务（TERM → grace → KILL），而 runtime 级扩展 helper 不受影响；
+- 后台命令（`npm run dev &`）继续运行且保持被跟踪——session 结束或 Pi 死亡时
+  由独立 watchdog 回收；
+- 即使 Pi 被 `SIGKILL`，session 任务仍会被 watchdog 回收（SIGKILL 时
+  pi 自己的 detached-child 清理不会执行）。
+
+Job 记录保存在磁盘
+`<stateRoot>/pi-process-guard/sessions/<sessionId>/` 下，`/reload` 后仍然有效。
+
 ## 命令
 
 ```text

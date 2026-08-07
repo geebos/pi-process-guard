@@ -105,3 +105,17 @@ export async function getPgid(pid: number): Promise<number | undefined> {
 		return undefined;
 	}
 }
+
+/**
+ * Send a signal to a whole process group (POSIX killpg).
+ * A group with no members yields ESRCH, which is treated as success (idempotent).
+ */
+export function killProcessGroup(pgid: number, signal: NodeJS.Signals): void {
+	if (!Number.isInteger(pgid) || pgid <= 0) return;
+	try {
+		process.kill(-pgid, signal);
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code !== "ESRCH") throw err;
+	}
+}
