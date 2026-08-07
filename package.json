@@ -1,6 +1,6 @@
 {
   "name": "pi-process-guard",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "pi-guard — guard extension for pi coding agent (initial skeleton)",
   "type": "module",
   "main": "./extensions/index.ts",
