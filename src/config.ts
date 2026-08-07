@@ -6,7 +6,8 @@
  * See docs/tech.md §16.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GuardConfig, LogLevel } from "./types.ts";
@@ -141,6 +142,31 @@ export function loadFileConfig(path: string): Partial<GuardConfig> {
 		return out;
 	} catch {
 		return {};
+	}
+}
+
+/**
+ * Persist a partial config to the JSON config file, merging with any existing
+ * content (unknown keys are preserved). Atomic tmp+rename, 0600. Returns false
+ * when the write fails.
+ */
+export function saveFileConfig(path: string, patch: Partial<GuardConfig>): boolean {
+	const existing: Record<string, unknown> = existsSync(path)
+		? (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)
+		: {};
+	const next: Record<string, unknown> = { ...existing };
+	if (patch.enabled !== undefined) next.enabled = patch.enabled;
+	if (patch.termGraceMs !== undefined) next.termGraceMs = patch.termGraceMs;
+	if (patch.killVerifyMs !== undefined) next.killVerifyMs = patch.killVerifyMs;
+	if (patch.logging !== undefined) next.logging = { ...(next.logging as object | undefined), ...patch.logging };
+	try {
+		mkdirSync(dirname(path), { recursive: true });
+		const tmp = `${path}.tmp`;
+		writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+		renameSync(tmp, path);
+		return true;
+	} catch {
+		return false;
 	}
 }
 

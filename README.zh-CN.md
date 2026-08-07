@@ -91,12 +91,16 @@ Best-effort 边界：在两次采样之间逃逸并退出的进程无法被回�
 ## 命令
 
 ```text
+/plugin:pg enable|disable|status   开启/关闭 guard（持久化到配置文件）
 /process-guard           诊断：平台、guard id、backend、janitor 状态
 /process-guard ps        列出受跟踪的 runtime 进程（PGID 成员）
 /process-guard doctor    健康检查：launcher、state 文件、janitor、PGID
 /process-guard cleanup-session  停止 session 所属任务（幂等）
 /guard                   显示生效配置
 ```
+
+> `/plugin:pg` 会把 `enabled` 写入配置文件。下次**通过 `pi-guard` 启动**时生效
+> （launcher 启动时读取 `enabled`）；当前运行中的 guard 保持现有行为。
 
 ## 配置
 

@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -34,6 +34,7 @@ test("extension loads and registers commands + lifecycle handlers", { timeout: 3
 	assert.ok(ext, "extension loaded");
 	assert.ok(ext.commands.has("process-guard"), "registers /process-guard");
 	assert.ok(ext.commands.has("guard"), "registers /guard");
+	assert.ok(ext.commands.has("plugin:pg"), "registers /plugin:pg");
 	assert.ok(ext.handlers.has("session_start"), "subscribes to session_start");
 	assert.ok(ext.handlers.has("session_shutdown"), "subscribes to session_shutdown");
 	assert.ok(ext.handlers.has("tool_call"), "subscribes to tool_call (Phase 2)");
@@ -180,5 +181,41 @@ test("session_shutdown prints the plugin name and cleaned job count", { timeout:
 	} finally {
 		if (prevStateRoot === undefined) delete process.env.PI_PROCESS_GUARD_STATE_ROOT;
 		else process.env.PI_PROCESS_GUARD_STATE_ROOT = prevStateRoot;
+	}
+});
+
+test("/plugin:pg enable/disable persists to the config file", { timeout: 30000 }, async () => {
+	// Isolated config path so the real ~/.pi/agent config is never touched.
+	const dir = mkdtempSync(join(tmpdir(), "pi-guard-pg-"));
+	const configPath = join(dir, "process-guard.json");
+	const prev = process.env.PI_PROCESS_GUARD_CONFIG;
+	process.env.PI_PROCESS_GUARD_CONFIG = configPath;
+	try {
+		const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
+		assert.deepEqual(result.errors, []);
+		const ext = result.extensions[0]!;
+		const command = ext.commands.get("plugin:pg")!;
+		const notices: { message: string; type: string }[] = [];
+		const ctx = mockCtx(notices);
+
+		// disable
+		await command.handler("disable", ctx);
+		const disabled = notices.at(-1)!.message;
+		assert.match(disabled, /disabled/, "reports disabled");
+		assert.match(disabled, /next launch/, "notes it takes effect on next launch");
+		assert.equal(JSON.parse(readFileSync(configPath, "utf8")).enabled, false, "config file written");
+
+		// status reflects the file
+		await command.handler("status", ctx);
+		assert.match(notices.at(-1)!.message, /disabled/, "status shows disabled");
+
+		// enable
+		await command.handler("enable", ctx);
+		const enabled = notices.at(-1)!.message;
+		assert.match(enabled, /enabled/, "reports enabled");
+		assert.equal(JSON.parse(readFileSync(configPath, "utf8")).enabled, true, "config file flipped back");
+	} finally {
+		if (prev === undefined) delete process.env.PI_PROCESS_GUARD_CONFIG;
+		else process.env.PI_PROCESS_GUARD_CONFIG = prev;
 	}
 });

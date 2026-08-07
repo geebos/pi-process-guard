@@ -5,7 +5,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
-import { loadConfig } from "./config.ts";
+import { loadConfig, saveFileConfig } from "./config.ts";
 import { readState } from "./guard-state.ts";
 import { listPgidMembers, pidAlive } from "./process-info.ts";
 import { getRuntimeContext, getSessionManager, hasLauncher } from "./store.ts";
@@ -95,6 +95,40 @@ async function doctorReport(): Promise<string[]> {
 }
 
 export function registerGuardCommand(pi: ExtensionAPI): void {
+	pi.registerCommand("plugin:pg", {
+		description: "Pi Process Guard on/off (enable | disable | status)",
+		handler: async (args, ctx) => {
+			const sub = args.trim().split(/\s+/)[0] ?? "status";
+			const config = loadConfig();
+
+			if (sub === "enable" || sub === "disable") {
+				const enabled = sub === "enable";
+				const ok = saveFileConfig(config.configPath, { enabled });
+				if (!ok) {
+					reportToUser(ctx, `[pi-process-guard] failed to write config: ${config.configPath}`);
+					return;
+				}
+				// The launcher reads `enabled` at startup, so the change applies to
+				// the next launch; the running guard keeps its current behavior.
+				reportToUser(
+					ctx,
+					`[pi-process-guard] ${enabled ? "enabled" : "disabled"} (takes effect on next launch via pi-guard; current run unchanged)`,
+				);
+				return;
+			}
+
+			// status (default): effective value + where it comes from.
+			reportToUser(
+				ctx,
+				[
+					`[pi-process-guard] ${config.enabled ? "enabled" : "disabled"}`,
+					`Config file:     ${config.configPath}${existsSync(config.configPath) ? "" : " (not present)"}`,
+					`Usage: /plugin:pg enable | disable | status`,
+				].join("\n"),
+			);
+		},
+	});
+
 	pi.registerCommand("process-guard", {
 		description: "Pi Process Guard diagnostics (status | ps | doctor | cleanup-session)",
 		handler: async (args, ctx) => {

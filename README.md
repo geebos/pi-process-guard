@@ -101,12 +101,17 @@ cannot be reclaimed (`docs/tech.md` §8.6).
 ## Commands
 
 ```text
-/process-guard           Diagnostics: platform, guard id, backend, janitor state
-/process-guard ps        List tracked runtime processes (PGID membership)
-/process-guard doctor    Health checks: launcher, state file, janitor, PGID
-/process-guard cleanup-session   Stop session-owned jobs (idempotent)
-/guard                   Show effective configuration
+/plugin:pg enable|disable|status   Turn the guard on/off (persisted to config)
+/process-guard                     Diagnostics: platform, guard id, backend, janitor state
+/process-guard ps                  List tracked runtime processes (PGID membership)
+/process-guard doctor              Health checks: launcher, state file, janitor, PGID
+/process-guard cleanup-session     Stop session-owned jobs (idempotent)
+/guard                             Show effective configuration
 ```
+
+> `/plugin:pg` writes `enabled` to the config file. The change applies on the
+> next launch **via `pi-guard`** (the launcher reads `enabled` at startup);
+> the currently running guard keeps its behavior until then.
 
 ## Configuration
 
