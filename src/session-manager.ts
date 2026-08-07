@@ -73,13 +73,28 @@ export class SessionProcessManager {
 	}
 
 	get jobCount(): number {
-		return this.jobs.size;
+		return this.readJobRecords().length;
 	}
 
+	/**
+	 * Session jobs, disk-backed: job records carry the pgid that cleanup
+	 * actually signals. The command string is looked up in the memory cache
+	 * (foreground commands remove their record on finish, so it may be absent).
+	 */
 	listJobs(): SessionJob[] {
-		return [...this.jobs.values()];
+		return this.readJobRecords().map((r) => ({
+			id: r.jobId,
+			command: this.jobs.get(r.jobId)?.command ?? "",
+			startedAt: r.startedAt,
+			pid: r.pid,
+		}));
 	}
 
+	/**
+	 * Remember a wrapped command until its executor publishes the on-disk job
+	 * record. The memory entry has no pgid, so it is only a write-window cache
+	 * and diagnostic aid — it never counts towards cleanup totals.
+	 */
 	trackJob(job: SessionJob): void {
 		this.jobs.set(job.id, job);
 	}
@@ -143,29 +158,41 @@ export class SessionProcessManager {
 	}
 
 	/**
-	 * Number of jobs this session owns right now (on-disk records + in-memory
-	 * pending, deduplicated). Used to announce an upcoming cleanup.
+	 * Drop memory entries whose on-disk job record is gone (the executor
+	 * removes the record when a foreground command finishes). Keeps the cache
+	 * bounded and consistent with what cleanup can actually signal.
 	 */
-	pendingJobCount(): number {
-		return this.sessionJobIds().size;
+	private pruneMemoryJobs(): void {
+		const diskIds = new Set(this.readJobRecords().map((r) => r.jobId));
+		for (const id of [...this.jobs.keys()]) {
+			if (!diskIds.has(id)) this.jobs.delete(id);
+		}
 	}
 
-	private sessionJobIds(): Set<string> {
-		const records = this.readJobRecords();
-		return new Set<string>([...records.map((r) => r.jobId), ...this.jobs.keys()]);
+	/**
+	 * Number of jobs that the next cleanup will actually signal — on-disk job
+	 * records with a pgid. Used to announce an upcoming cleanup.
+	 */
+	pendingJobCount(): number {
+		this.pruneMemoryJobs();
+		return this.readJobRecords().length;
 	}
 
 	/**
 	 * Stop all session-owned jobs (TERM → grace → KILL) and clear the session.
 	 * Idempotent: repeated calls are safe; ESRCH is treated as already gone.
+	 *
+	 * `stopped` counts the on-disk job records (each has a pgid that is sent
+	 * SIGTERM → SIGKILL). Foreground commands that already finished removed
+	 * their records, so they never inflate the total.
 	 */
 	async cleanupSession(): Promise<{ stopped: number }> {
 		// Give a just-wrapped command's executor a moment to publish its job
 		// record, so a /new right after `npm run dev &` still catches it.
 		await sleep(200);
+		this.pruneMemoryJobs();
 		const records = this.readJobRecords();
-		const ids = this.sessionJobIds();
-		const stopped = ids.size;
+		const stopped = records.length;
 		this.jobs.clear();
 
 		for (const record of records) {

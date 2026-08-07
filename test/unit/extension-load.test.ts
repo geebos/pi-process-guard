@@ -7,8 +7,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { discoverAndLoadExtensions, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { waitFor } from "../helpers.ts";
 
 const EXT_ENTRY = fileURLToPath(new URL("../../extensions/index.ts", import.meta.url));
 const CWD = fileURLToPath(new URL("../..", import.meta.url));
@@ -112,43 +117,68 @@ test("user_bash returns custom operations that wrap the command", { timeout: 300
 });
 
 test("session_shutdown prints the plugin name and cleaned job count", { timeout: 30000 }, async () => {
-	const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
-	assert.deepEqual(result.errors, []);
-	const ext = result.extensions[0]!;
-	const notices: { message: string; type: string }[] = [];
-	const ctx = mockCtx(notices);
+	// Isolate the state root so the test never touches the real user cache.
+	const stateRoot = join(mkdtempSync(join(tmpdir(), "pi-guard-ext-")), "root");
+	const prevStateRoot = process.env.PI_PROCESS_GUARD_STATE_ROOT;
+	process.env.PI_PROCESS_GUARD_STATE_ROOT = stateRoot;
+	try {
+		const result = await discoverAndLoadExtensions([EXT_ENTRY], CWD);
+		assert.deepEqual(result.errors, []);
+		const ext = result.extensions[0]!;
+		const notices: { message: string; type: string }[] = [];
+		const ctx = mockCtx(notices);
 
-	const startHandlers = ext.handlers.get("session_start")!;
-	await startHandlers[0]({ type: "session_start", reason: "startup" }, ctx);
+		const startHandlers = ext.handlers.get("session_start")!;
+		await startHandlers[0]({ type: "session_start", reason: "startup" }, ctx);
 
-	// Wrap a backgrounded command so the session owns a real job.
-	const toolCallHandlers = ext.handlers.get("tool_call")!;
-	const bashEvent = {
-		type: "tool_call",
-		toolCallId: "c1",
-		toolName: "bash",
-		input: { command: "sleep 700 &" },
-	} as const;
-	await toolCallHandlers[0](bashEvent as never, ctx);
-	assert.ok(bashEvent.input.command.includes("session-exec"), "command wrapped");
+		// Wrap a backgrounded command and actually run it so the executor
+		// publishes the on-disk job record.
+		const toolCallHandlers = ext.handlers.get("tool_call")!;
+		const bashEvent = {
+			type: "tool_call",
+			toolCallId: "c1",
+			toolName: "bash",
+			input: { command: "sleep 700 &" },
+		} as const;
+		await toolCallHandlers[0](bashEvent as never, ctx);
+		assert.ok(bashEvent.input.command.includes("session-exec"), "command wrapped");
 
-	const shutdownHandlers = ext.handlers.get("session_shutdown")!;
-	await shutdownHandlers[0]({ type: "session_shutdown", reason: "new" }, ctx);
+		const shell = spawn("bash", ["-lc", bashEvent.input.command], { stdio: "ignore" });
+		void shell;
+		// Wait until the executor publishes the on-disk job record. The test
+		// inspects the filesystem (jiti loads its own store.ts instance, so the
+		// module-level session manager is not shared with this test process).
+		await waitFor(async () => {
+			const sessionsRoot = join(stateRoot, "pi-process-guard", "sessions");
+			if (!existsSync(sessionsRoot)) return false;
+			return readdirSync(sessionsRoot).some((s) => {
+				const jobsDir = join(sessionsRoot, s, "jobs");
+				return existsSync(jobsDir) && readdirSync(jobsDir).some((f) => f.endsWith(".json"));
+			});
+		}, 5000);
 
-	// The cleanup is announced BEFORE it runs, so the /new pause is understood.
-	const stoppingNotice = notices.find((n) => n.message.includes("stopping"));
-	assert.ok(stoppingNotice, "cleanup start is announced");
-	assert.match(stoppingNotice!.message, /stopping \d+ session process\(es\)\.\.\./, "announces how many processes are stopped");
-	assert.equal(stoppingNotice!.type, "warning", "start notice renders as a warning line");
+		const shutdownHandlers = ext.handlers.get("session_shutdown")!;
+		await shutdownHandlers[0]({ type: "session_shutdown", reason: "new" }, ctx);
+		void shell;
 
-	const cleanupNotice = notices.find((n) => n.message.includes("session cleanup"));
-	assert.ok(cleanupNotice, "session cleanup prints the plugin name and job count");
-	assert.match(cleanupNotice!.message, /stopped \d+ job\(s\)/, "includes the cleaned job count");
+		// The cleanup is announced BEFORE it runs, so the /new pause is understood.
+		const stoppingNotice = notices.find((n) => n.message.includes("stopping"));
+		assert.ok(stoppingNotice, "cleanup start is announced");
+		assert.match(stoppingNotice!.message, /stopping 1 session process\(es\)\.\.\./, "announces the real signallable count");
+		assert.equal(stoppingNotice!.type, "warning", "start notice renders as a warning line");
 
-	// The next session_start must surface the previous cleanup in the TUI
-	// (session_shutdown-time notices are unreliable during the switch).
-	await startHandlers[0]({ type: "session_start", reason: "new" }, ctx);
-	const carryover = notices.find((n) => n.message.includes("previous session cleanup"));
-	assert.ok(carryover, "next session shows the previous cleanup result");
-	assert.match(carryover!.message, /stopped \d+ job\(s\)/, "carryover includes the cleaned job count");
+		const cleanupNotice = notices.find((n) => n.message.includes("session cleanup"));
+		assert.ok(cleanupNotice, "session cleanup prints the plugin name and job count");
+		assert.match(cleanupNotice!.message, /stopped 1 job\(s\)/, "counts exactly the on-disk record");
+
+		// The next session_start must surface the previous cleanup in the TUI
+		// (session_shutdown-time notices are unreliable during the switch).
+		await startHandlers[0]({ type: "session_start", reason: "new" }, ctx);
+		const carryover = notices.find((n) => n.message.includes("previous session cleanup"));
+		assert.ok(carryover, "next session shows the previous cleanup result");
+		assert.match(carryover!.message, /stopped 1 job\(s\)/, "carryover counts the on-disk record");
+	} finally {
+		if (prevStateRoot === undefined) delete process.env.PI_PROCESS_GUARD_STATE_ROOT;
+		else process.env.PI_PROCESS_GUARD_STATE_ROOT = prevStateRoot;
+	}
 });
