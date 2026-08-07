@@ -121,10 +121,27 @@ test("session_shutdown prints the plugin name and cleaned job count", { timeout:
 	const startHandlers = ext.handlers.get("session_start")!;
 	await startHandlers[0]({ type: "session_start", reason: "startup" }, ctx);
 
+	// Wrap a backgrounded command so the session owns a real job.
+	const toolCallHandlers = ext.handlers.get("tool_call")!;
+	const bashEvent = {
+		type: "tool_call",
+		toolCallId: "c1",
+		toolName: "bash",
+		input: { command: "sleep 700 &" },
+	} as const;
+	await toolCallHandlers[0](bashEvent as never, ctx);
+	assert.ok(bashEvent.input.command.includes("session-exec"), "command wrapped");
+
 	const shutdownHandlers = ext.handlers.get("session_shutdown")!;
 	await shutdownHandlers[0]({ type: "session_shutdown", reason: "new" }, ctx);
 
-	const cleanupNotice = notices.find((n) => n.message.includes("pi-process-guard") && n.message.includes("session cleanup"));
+	// The cleanup is announced BEFORE it runs, so the /new pause is understood.
+	const stoppingNotice = notices.find((n) => n.message.includes("stopping"));
+	assert.ok(stoppingNotice, "cleanup start is announced");
+	assert.match(stoppingNotice!.message, /stopping \d+ session process\(es\)\.\.\./, "announces how many processes are stopped");
+	assert.equal(stoppingNotice!.type, "warning", "start notice renders as a warning line");
+
+	const cleanupNotice = notices.find((n) => n.message.includes("session cleanup"));
 	assert.ok(cleanupNotice, "session cleanup prints the plugin name and job count");
 	assert.match(cleanupNotice!.message, /stopped \d+ job\(s\)/, "includes the cleaned job count");
 

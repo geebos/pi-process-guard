@@ -61,6 +61,16 @@ export default function (pi: ExtensionAPI) {
 		// Session-scoped cleanup only: /new, /resume, /fork, /reload must never
 		// touch runtime-level processes (docs/tech.md §10.2). On "quit" the
 		// janitor performs the runtime-level final sweep.
+		const pending = sm.pendingJobCount();
+		// Announce the cleanup BEFORE waiting on it, so the /new pause is
+		// understood as "stopping processes", not a hang. warning renders as a
+		// line in the chat area (showWarning), not just a status flash.
+		if (pending > 0) {
+			const starting = `[${PLUGIN_NAME}] stopping ${pending} session process(es)...`;
+			log.info("session cleanup start", { cleaning: String(pending) });
+			process.stderr.write(`${starting}\n`);
+			ctx.ui.notify(starting, "warning");
+		}
 		const { stopped } = await sm.cleanupSession();
 		lastCleanup = { stopped, at: Date.now() };
 		log.info("session cleanup", {

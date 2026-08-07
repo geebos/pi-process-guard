@@ -143,6 +143,19 @@ export class SessionProcessManager {
 	}
 
 	/**
+	 * Number of jobs this session owns right now (on-disk records + in-memory
+	 * pending, deduplicated). Used to announce an upcoming cleanup.
+	 */
+	pendingJobCount(): number {
+		return this.sessionJobIds().size;
+	}
+
+	private sessionJobIds(): Set<string> {
+		const records = this.readJobRecords();
+		return new Set<string>([...records.map((r) => r.jobId), ...this.jobs.keys()]);
+	}
+
+	/**
 	 * Stop all session-owned jobs (TERM → grace → KILL) and clear the session.
 	 * Idempotent: repeated calls are safe; ESRCH is treated as already gone.
 	 */
@@ -151,12 +164,7 @@ export class SessionProcessManager {
 		// record, so a /new right after `npm run dev &` still catches it.
 		await sleep(200);
 		const records = this.readJobRecords();
-		// Deduplicate across on-disk records and in-memory pending jobs (a job
-		// is both until the executor finishes writing its record).
-		const ids = new Set<string>([
-			...records.map((r) => r.jobId),
-			...[...this.jobs.keys()],
-		]);
+		const ids = this.sessionJobIds();
 		const stopped = ids.size;
 		this.jobs.clear();
 
