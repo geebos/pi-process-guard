@@ -20,15 +20,18 @@ import { killProcessGroup, listPgidMembers } from "./process-info.ts";
 /**
  * Locate the session-exec entry Node can actually execute.
  *
- * Published packages ship compiled JS under dist/ — Node refuses to type-strip
- * .ts files inside node_modules — while the workspace runs the same file as
- * .ts (project files are not subject to the node_modules restriction).
+ * Published packages ship compiled JS under dist/src/ — Node refuses to
+ * type-strip .ts files inside node_modules — while the workspace runs the
+ * same file as .ts (project files are not subject to the node_modules
+ * restriction). `here` is the directory of the module doing the resolution:
+ *   - dist/src/ when a compiled module is loaded (candidate 1)
+ *   - src/ when pi loads the extension sources (candidate 2, matching the
+ *     installed layout where dist/src/session-exec.js sits next to src/)
  */
-function resolveExecutorEntry(): string {
-	const here = fileURLToPath(new URL(".", import.meta.url));
+export function resolveExecutorEntryFrom(here: string): string {
 	const candidates = [
 		join(here, "session-exec.js"), // compiled layout: dist/src/
-		join(here, "..", "dist", "session-exec.js"), // workspace with dist/ built: src/ → dist/src/
+		join(here, "..", "dist", "src", "session-exec.js"), // src/ → dist/src/ (workspace / node_modules install)
 		join(here, "session-exec.ts"), // plain workspace run: src/
 	];
 	for (const candidate of candidates) {
@@ -37,7 +40,7 @@ function resolveExecutorEntry(): string {
 	return candidates[2]!;
 }
 
-const EXECUTOR_ENTRY = resolveExecutorEntry();
+const EXECUTOR_ENTRY = resolveExecutorEntryFrom(fileURLToPath(new URL(".", import.meta.url)));
 
 export interface SessionJob {
 	id: string;
