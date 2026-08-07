@@ -19,7 +19,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "publish:local": "node scripts/publish-local.mjs"
   },
   "keywords": [
     "pi-package",
