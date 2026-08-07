@@ -84,6 +84,20 @@ Job records live on disk under
 `<stateRoot>/pi-process-guard/sessions/<sessionId>/`, so they survive
 `/reload`.
 
+## Escaped-process sweep (macOS)
+
+A descendant can call `setsid()` to leave the Pi process group. The launcher
+maintains a **descendant registry**: every ~1s it samples the process table,
+walks the PPID tree from Pi's PID, and records every process it has ever
+confirmed as part of the runtime, together with its start-time identity
+(PID-reuse guard). The registry is persisted next to the state file. During
+final cleanup the janitor first terminates the process group, then sweeps
+registry entries whose identity still matches — TERM, grace, KILL. A reused
+PID with a different start time is never touched.
+
+Best-effort boundary: a process that escapes and exits between two samples
+cannot be reclaimed (`docs/tech.md` §8.6).
+
 ## Commands
 
 ```text

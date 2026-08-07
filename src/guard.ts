@@ -8,6 +8,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./log.ts";
@@ -192,7 +193,10 @@ export async function runGuard(opts: RunGuardOptions): Promise<number> {
 	}
 
 	// 3. Create the isolation domain and start Pi inside it.
-	const backend = await createBackend(platform, config, { guardId });
+	const backend = await createBackend(platform, config, {
+		guardId,
+		registryPath: join(stateDir, "registry.json"),
+	});
 	const guardVars = guardEnv(janitorEnv, {
 		guardId,
 		backend: backend.kind,

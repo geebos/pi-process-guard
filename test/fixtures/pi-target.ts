@@ -35,6 +35,14 @@ function spawnBackground(): void {
 	note("child", child.pid ?? -1);
 }
 
+function spawnEscaped(): void {
+	// A detached child is a new session/process-group leader (setsid()
+	// equivalent): it escapes the Pi process group (docs/tech.md §8.3).
+	const child = spawn("sleep", [sleepSecs], { stdio: "ignore", detached: true });
+	child.unref();
+	note("escaped", child.pid ?? -1);
+}
+
 note("self", process.pid);
 
 switch (mode) {
@@ -45,6 +53,9 @@ switch (mode) {
 		spawnBackground();
 		setTimeout(() => process.exit(exitCode), 200);
 		break;
+	case "escape":
+		spawnEscaped();
+	// fallthrough: also spawn a normal background child, then keep alive
 	case "normal":
 		spawnBackground();
 	// fallthrough: keep alive

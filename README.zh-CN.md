@@ -76,6 +76,18 @@ process group**：一个小的 `session-exec` 进程 detached 运行命令、发
 Job 记录保存在磁盘
 `<stateRoot>/pi-process-guard/sessions/<sessionId>/` 下，`/reload` 后仍然有效。
 
+## 逃逸进程清理（macOS）
+
+descendant 可能调用 `setsid()` 脱离 Pi 的 process group。launcher 维护一个
+**descendant registry**：每 ~1s 采样进程表、从 Pi 的 PID 遍历 PPID 树，并记录
+所有曾被确认属于 runtime 的进程及其启动时间身份（PID 复用防护）。registry
+持久化在 state 文件旁。最终清理时 janitor 先终止 process group，再逐个清理
+identity 仍然匹配的 registry 条目——TERM、宽限、KILL。PID 被复用但启动时间
+不同的进程绝不会被误杀。
+
+Best-effort 边界：在两次采样之间逃逸并退出的进程无法被回收（`docs/tech.md`
+§8.6）。
+
 ## 命令
 
 ```text

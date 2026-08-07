@@ -16,7 +16,7 @@
  * the Pi process are already gone.
  */
 
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { createBackend } from "../platform/index.ts";
 import type { GuardBackend } from "../platform/index.ts";
@@ -49,6 +49,7 @@ function main(): void {
 			guardId: s.guardId,
 			pgid: s.piPgid,
 			runtimeUnit: s.runtimeUnit,
+			registryPath: join(stateDir, "registry.json"),
 		});
 
 	let cleaning = false;

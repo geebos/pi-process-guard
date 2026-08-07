@@ -49,6 +49,8 @@ export interface BackendContext {
 	guardId: string;
 	pgid?: number;
 	runtimeUnit?: string;
+	/** Path for the descendant registry snapshot (process-group backend). */
+	registryPath?: string;
 }
 
 /**
