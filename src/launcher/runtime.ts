@@ -17,7 +17,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config.ts";
 import { createLogger, type Logger } from "../log.ts";
@@ -65,8 +65,17 @@ export interface RunGuardOptions {
 
 function packageRoot(): string {
 	// import.meta.url points at a file (src/launcher/runtime.ts or
-	// dist/src/launcher/runtime.js); ../.. from its directory reaches pkg/.
-	return fileURLToPath(new URL("../..", import.meta.url));
+	// dist/src/launcher/runtime.js). The compiled dist/ layout adds one extra
+	// level, so a fixed ../.. cannot reach pkg/ in both layouts: walk up to the
+	// nearest package.json instead.
+	let dir = fileURLToPath(new URL(".", import.meta.url));
+	for (;;) {
+		if (existsSync(join(dir, "package.json"))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	throw new GuardStartupError(EXIT_CODES.INTERNAL, "pi-process-guard: cannot locate package root");
 }
 
 /** Installed layout (node_modules) can only run compiled JS, not TS sources. */
