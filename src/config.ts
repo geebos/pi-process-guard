@@ -2,7 +2,7 @@
  * Configuration for pi-process-guard.
  *
  * Resolution order (lowest to highest precedence):
- *   defaults -> file config (~/.pi/agent/process-guard.json) -> environment
+ *   defaults -> file config (in the plugin dir under ~/.pi/agent/extensions) -> environment
  * See docs/tech.md §16.
  */
 
@@ -14,6 +14,9 @@ import type { GuardConfig, LogLevel } from "./types.ts";
 
 export const CONFIG_FILE_NAME = "process-guard.json";
 
+/** Per-plugin directory name under ~/.pi/agent/extensions/. */
+export const PLUGIN_DIR_NAME = "pi-process-guard";
+
 function expandHome(path: string): string {
 	if (path === "~") return homedir();
 	if (path.startsWith("~/") || path.startsWith("~\\")) {
@@ -23,20 +26,33 @@ function expandHome(path: string): string {
 }
 
 /**
- * Default state root: $XDG_CACHE_HOME/pi-process-guard or ~/.cache/pi-process-guard.
- * Runtime dirs live under `<root>/runtime/<guardId>/` (docs §10).
+ * Agent directory: $PI_CODING_AGENT_DIR or ~/.pi/agent. All on-disk files
+ * (config, logs, state) live in <agentDir>/extensions/pi-process-guard/.
  */
-export function defaultStateRoot(env: NodeJS.ProcessEnv = process.env): string {
-	const xdg = env.XDG_CACHE_HOME;
-	if (xdg && xdg.trim()) return join(expandHome(xdg), "pi-process-guard");
-	return join(homedir(), ".cache", "pi-process-guard");
+export function agentDir(env: NodeJS.ProcessEnv = process.env): string {
+	const configured = env.PI_CODING_AGENT_DIR;
+	return configured ? expandHome(configured) : join(homedir(), ".pi", "agent");
 }
 
-/** Default log file location: ~/.pi/agent/logs/process-guard.log */
+/**
+ * Plugin directory: <agentDir>/extensions/pi-process-guard/. Every file this
+ * package writes — config, logs, runtime/session state — goes under here.
+ */
+export function pluginDir(env: NodeJS.ProcessEnv = process.env): string {
+	return join(agentDir(env), "extensions", PLUGIN_DIR_NAME);
+}
+
+/**
+ * Default state root: <agentDir>/extensions/pi-process-guard/. Runtime dirs
+ * live under `<root>/runtime/<guardId>/` (docs §10).
+ */
+export function defaultStateRoot(env: NodeJS.ProcessEnv = process.env): string {
+	return pluginDir(env);
+}
+
+/** Default log file location: <agentDir>/extensions/pi-process-guard/logs/process-guard.log */
 export function defaultLogFile(env: NodeJS.ProcessEnv = process.env): string {
-	const configured = env.PI_CODING_AGENT_DIR;
-	const agentDir = configured ? expandHome(configured) : join(homedir(), ".pi", "agent");
-	return join(agentDir, "logs", "process-guard.log");
+	return join(pluginDir(env), "logs", "process-guard.log");
 }
 
 export const DEFAULT_CONFIG: GuardConfig = {
@@ -66,7 +82,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
 		file: defaultLogFile(),
 	},
 	stateRoot: defaultStateRoot(),
-	configPath: join(homedir(), ".pi", "agent", CONFIG_FILE_NAME),
+	configPath: join(pluginDir(), CONFIG_FILE_NAME),
 };
 
 const isLogLevel = (v: unknown): v is LogLevel =>

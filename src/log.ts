@@ -1,7 +1,8 @@
 /**
  * Structured logger for pi-process-guard.
  *
- * Writes JSON lines to a log file (default ~/.pi/agent/logs/process-guard.log)
+ * Writes JSON lines to a log file (default
+ * ~/.pi/agent/extensions/pi-process-guard/logs/process-guard.log)
  * and echoes warn/error to stderr when enabled. Never logs full command lines:
  * they may contain tokens or sensitive arguments (docs/tech.md §18).
  */

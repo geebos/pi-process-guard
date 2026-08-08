@@ -7,14 +7,14 @@
  * while leaving runtime-level extension helpers untouched.
  *
  * Job metadata lives on disk under
- *   <stateRoot>/pi-process-guard/sessions/<sessionId>/jobs/<jobId>.json
+ *   <stateRoot>/sessions/<sessionId>/jobs/<jobId>.json
  * so it survives extension reloads (docs/tech.md §22.3).
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { defaultStateRoot } from "./config.ts";
 import { killProcessGroup, listPgidMembers } from "./process-info.ts";
 
 /**
@@ -60,12 +60,6 @@ export interface JobRecord {
 /** Single-quote a string for safe embedding into a shell command line. */
 export function shq(s: string): string {
 	return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-function defaultStateRoot(): string {
-	const xdg = process.env.XDG_CACHE_HOME;
-	const root = xdg && xdg.trim() ? xdg : join(homedir(), ".cache");
-	return process.env.PI_PROCESS_GUARD_STATE_ROOT ?? join(root, "pi-process-guard");
 }
 
 export function sessionDirFor(stateRoot: string, sessionId: string): string {

@@ -30,10 +30,13 @@ test("session job inside a guarded runtime is reclaimed after Pi SIGKILL", { tim
 	// Run it the way the bash tool does (detached shell, own process group).
 	const shell = spawn("bash", ["-lc", wrapped], { detached: true, stdio: "ignore" });
 	shell.unref();
-	await waitFor(() => sm.readJobRecords().length === 1, 5000);
-	const record = sm.readJobRecords()[0]!;
-	const members = await listPgidMembers(record.pgid);
-	const jobPid = members.find((m) => m.comm === "sleep")?.pid;
+	let jobPid: number | undefined;
+	await waitFor(async () => {
+		if (sm.readJobRecords().length === 0) return false;
+		const members = await listPgidMembers(sm.readJobRecords()[0]!.pgid);
+		jobPid = members.find((m) => m.comm === "sleep")?.pid;
+		return jobPid !== undefined;
+	}, 5000);
 	assert.ok(jobPid, "background sleep lives in the session job group");
 	assert.equal(pidAlive(guard.piPid), true);
 

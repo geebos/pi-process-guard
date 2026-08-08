@@ -810,10 +810,10 @@ janitor.unref();
 建议状态目录：
 
 ```text
-~/.cache/pi-process-guard/<guardId>/state.json
+~/.pi/agent/extensions/pi-process-guard/<guardId>/state.json
 ```
 
-或遵循 `$XDG_RUNTIME_DIR` / macOS cache directory。
+即插件目录 `~/.pi/agent/extensions/pi-process-guard/` 下（config、日志、状态均位于此目录）。
 
 状态示例：
 
@@ -1035,7 +1035,7 @@ alias pi='pi-guard'
 建议配置文件：
 
 ```text
-~/.pi/agent/process-guard.json
+~/.pi/agent/extensions/pi-process-guard/process-guard.json
 ```
 
 示例：
@@ -1131,7 +1131,7 @@ Janitor:         active
 日志文件：
 
 ```text
-~/.pi/agent/logs/process-guard.log
+~/.pi/agent/extensions/pi-process-guard/logs/process-guard.log
 ```
 
 记录：

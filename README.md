@@ -2,41 +2,25 @@
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
-**Pi Process Guard — a launcher + mandatory janitor + pi extension that makes
-sure no ordinary descendant processes of Pi survive Pi's exit — including
-crashes and `SIGKILL`.**
+**Pi Process Guard — a launcher, a cleanup daemon, and a pi extension that
+make sure no background processes started by Pi survive Pi's exit, no matter
+how Pi exits — including crashes and force-kills.**
 
-Implementation follows [`docs/tech.md`](./docs/tech.md).
+## Features
 
-## Why
+Pi Process Guard is one npm package containing a launcher, a cleanup daemon,
+and a pi extension:
 
-A Pi coding agent can start language servers, watchers, dev servers, test
-runners, and arbitrary `child_process.spawn()` processes from any extension.
-When Pi exits — normally, through a crash, or via `SIGKILL` — those processes
-can be left behind.
-
-Relying only on the extension `session_shutdown` lifecycle event is not enough:
-
-- `SIGKILL` runs no JavaScript cleanup;
-- one extension cannot reliably intercept another extension's `spawn()`;
-- `session_shutdown` also fires on `/new`, `/resume`, `/fork`, `/reload`, which
-  must only stop *session-owned* jobs, not the whole runtime.
-
-Pi Process Guard solves this with three components shipped in one npm package:
-
-| Component | Responsibility |
-| --- | --- |
-| `pi-guard` launcher | creates the guard identity + isolation domain, starts the janitor, starts Pi, forwards signals |
-| janitor (`pi-guard-janitor`) | **mandatory** independent OS process; performs the final TERM → KILL cleanup even when Pi is `SIGKILL`ed or the launcher disappears |
-| Pi extension | session lifecycle (`session_start` / `session_shutdown`), diagnostics, session-owned job management |
-
-**Isolation domains:**
-
-- **Linux:** a dedicated `systemd --user` transient service (cgroup) —
-  `KillMode=control-group`, with a process-group fallback when systemd is
-  unavailable.
-- **macOS:** a dedicated POSIX process group (PGID = Pi PID); every ordinary
-  descendant inherits it.
+- Cleans up background processes Pi started when Pi exits — whether it quits
+  normally, crashes, or is force-killed.
+- Stops the previous session's jobs when you switch or reload sessions
+  (`/new`, `/resume`, `/fork`, `/reload`), while Pi's own helpers stay
+  untouched.
+- Keeps backgrounded commands (`npm run dev &`) tracked and cleans them up
+  when the session ends or Pi dies.
+- On macOS, also sweeps up processes that try to escape tracking (best
+  effort).
+- Works on Linux and macOS.
 
 ## Install
 
@@ -77,44 +61,37 @@ pi
 > The launcher resolves the real `pi` binary from `PATH` and refuses to
 > re-wrap itself, so the alias is safe from recursion.
 
-## Session semantics
+## Session behavior
 
-- `session_start` → new session id + session job registry
-- `session_shutdown(reason)` → stops **session-owned jobs only**, regardless of
-  reason (`quit`, `new`, `resume`, `fork`, `reload`)
-- Pi exit → janitor performs the runtime-level final sweep of the whole domain
+- Starting a session registers it and its jobs.
+- Ending a session — `quit`, `new`, `resume`, `fork`, `reload` — stops only
+  that session's jobs, whatever the reason.
+- When Pi exits, the janitor sweeps up whatever remains.
 
-## Session-owned commands
+## Session jobs
 
-Every bash tool command and user `!` / `!!` command is wrapped into a
-**session-owned process group**: a small `session-exec` process runs the
-command detached, publishes a job record, and supervises it. Consequences:
+Commands you run with the bash tool, or with `!` / `!!`, are tracked as jobs
+of the current session. This means:
 
-- `/new`, `/resume`, `/fork`, `/reload` terminate the previous session's
-  dev servers / watchers / background jobs (TERM → grace → KILL), while
-  runtime-level extension helpers stay untouched;
+- switching or reloading sessions stops the previous session's dev servers,
+  watchers, and background jobs, while Pi's own helpers are left untouched;
 - backgrounded commands (`npm run dev &`) keep running and stay tracked — a
-  detached watchdog reclaims them when the session ends or Pi dies;
-- if Pi is `SIGKILL`ed, the session jobs are still reclaimed by the watchdog,
-  because pi's own detached-child cleanup never runs on SIGKILL.
+  detached watchdog cleans them up when the session ends or Pi dies;
+- even if Pi is force-killed, session jobs are still cleaned up by the
+  watchdog, because Pi's own cleanup never runs on a force-kill.
 
-Job records live on disk under
-`<stateRoot>/pi-process-guard/sessions/<sessionId>/`, so they survive
-`/reload`.
+Job records are kept on disk and survive `/reload`.
 
-## Escaped-process sweep (macOS)
+## Escaped processes (macOS)
 
-A descendant can call `setsid()` to leave the Pi process group. The launcher
-maintains a **descendant registry**: every ~1s it samples the process table,
-walks the PPID tree from Pi's PID, and records every process it has ever
-confirmed as part of the runtime, together with its start-time identity
-(PID-reuse guard). The registry is persisted next to the state file. During
-final cleanup the janitor first terminates the process group, then sweeps
-registry entries whose identity still matches — TERM, grace, KILL. A reused
-PID with a different start time is never touched.
+A process can deliberately leave the group it is tracked in. To handle this,
+the launcher keeps a registry of every process it has ever confirmed as part
+of Pi's runtime, identified by PID **and** start time, so a reused PID is
+never mistaken for a new process. During final cleanup it first stops the
+group, then sweeps the registry — terminate, grace period, kill.
 
-Best-effort boundary: a process that escapes and exits between two samples
-cannot be reclaimed (`docs/tech.md` §8.6).
+This is best effort: a process that escapes and exits between two checks
+cannot be reclaimed.
 
 ## Commands
 
@@ -133,7 +110,7 @@ cannot be reclaimed (`docs/tech.md` §8.6).
 
 ## Configuration
 
-Optional config file: `~/.pi/agent/process-guard.json`
+Optional config file: `~/.pi/agent/extensions/pi-process-guard/process-guard.json`
 
 ```json
 {
@@ -167,40 +144,7 @@ PI_PROCESS_GUARD_KILL_VERIFY_MS=1000   SIGKILL verification window
 PI_PROCESS_GUARD_LOG=debug             log level
 ```
 
-Logs (never full command lines): `~/.pi/agent/logs/process-guard.log`
-
-## Development
-
-```bash
-npm install
-npm run check    # typecheck + tests
-npm run build    # compile src/ + bin/ to dist/ (JS)
-```
-
-The published package runs `npm run build` automatically before publishing
-(`prepublishOnly`): the `pi-guard` / `pi-guard-janitor` binaries and the
-`session-exec` entry spawn **compiled JS** from `dist/`, because Node refuses
-to type-strip `.ts` files inside `node_modules`. In the workspace (files are
-not under `node_modules`) the same entries resolve to the TypeScript sources
-and rely on Node ≥ 22.18 type stripping. Linux backend behavior is developed
-per `docs/tech.md` §7 and requires Linux CI; macOS and the process-group path
-are exercised by the integration tests.
-
-## Publishing
-
-Pushing a version tag runs two workflows (tag-only):
-
-| Workflow | Registry | Package name |
-| --- | --- | --- |
-| **Publish to npm** | npmjs.com | `pi-process-guard` |
-| **github-publish** | GitHub Packages | `@geebos/pi-process-guard` |
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The npm publish uses Trusted Publishing (OIDC) — no `NPM_TOKEN` required.
+Logs (never full command lines): `~/.pi/agent/extensions/pi-process-guard/logs/process-guard.log`
 
 ## License
 

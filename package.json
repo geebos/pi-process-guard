@@ -21,7 +21,9 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "node --test \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
+    "test": "node --test --test-force-exit \"test/unit/*.test.ts\" \"test/integration/*.test.ts\"",
+    "test:unit": "node --test --test-force-exit \"test/unit/*.test.ts\"",
+    "test:integration": "node --test --test-force-exit \"test/integration/*.test.ts\"",
     "check": "npm run typecheck && npm test",
     "publish:local": "npm version patch --no-git-tag-version && npm publish --registry http://localhost:9007"
   },
