@@ -1013,19 +1013,27 @@ auto-discovery Guard
 CLI -e Guard
 ```
 
-Extension 必须做 singleton guard。
+同一运行时（同一次加载 pass）内同一扩展的两个模块实例（源码 `.ts` + 编译版 `.js`）只允许一个注册。
 
-例如：
+但注意：Pi 在 `/new`、`/reload`、`/resume`、`/fork` 时会**重新执行扩展 factory**，用新的 `ExtensionAPI` 绑定新 runtime 的 runner。因此不能用进程级 boolean 单例——否则新会话的 handler/command 全部丢失（tool_call 不再包装 bash 命令，新会话的进程脱离管理）。
+
+注册去重必须按**运行时代际**进行：
 
 ```ts
-const key = Symbol.for("pi-process-guard.extension.loaded");
+const GENERATION_KEY = Symbol.for("pi-process-guard.extension.generation");
+const REGISTRATION_KEY = Symbol.for("pi-process-guard.extension.registration-generation");
 
-if ((globalThis as any)[key]) {
-  return;
-}
+// factory 内：
+const g = globalThis as Record<symbol, unknown>;
+const generation = (g[GENERATION_KEY] as number) ?? 0;
+if (g[REGISTRATION_KEY] === generation) return; // 同代重复调用 = 双加载 → 跳过
+(g as Record<symbol, unknown>)[REGISTRATION_KEY] = generation;
 
-(globalThis as any)[key] = true;
+// session_shutdown handler 内（Pi 在重新执行 factory 之前触发）：
+(g as Record<symbol, unknown>)[GENERATION_KEY] = ((g[GENERATION_KEY] as number) ?? 0) + 1;
 ```
+
+`Symbol.for` 保证 `.ts`/`.js` 两个模块实例共享同一代际计数；`session_shutdown` 推进代际，使新 runtime 的 factory 调用重新注册而非被当作重复跳过。
 
 另外可以检测：
 

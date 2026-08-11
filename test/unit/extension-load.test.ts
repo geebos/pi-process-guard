@@ -19,13 +19,16 @@ const EXT_ENTRY = fileURLToPath(new URL("../../extensions/index.ts", import.meta
 const CWD = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
- * The extension is a process-wide singleton (docs §13.2). pi's loader runs
- * the factory on every discover call, so tests that reload the extension in
- * the same process must reset the singleton first.
+ * The extension registers at most once per runtime generation (docs §13.2);
+ * pi's loader runs the factory on every discover call, so tests that reload
+ * the extension in the same process must reset the generation counters first.
  */
-const SINGLETON_KEY = Symbol.for("pi-process-guard.extension.loaded");
+const GENERATION_KEY = Symbol.for("pi-process-guard.extension.generation");
+const REGISTRATION_KEY = Symbol.for("pi-process-guard.extension.registration-generation");
 function resetSingleton(): void {
-	delete (globalThis as Record<symbol, unknown>)[SINGLETON_KEY];
+	const g = globalThis as Record<symbol, unknown>;
+	delete g[GENERATION_KEY];
+	delete g[REGISTRATION_KEY];
 }
 
 function mockCtx(notices: { message: string; type: string }[]): ExtensionContext {

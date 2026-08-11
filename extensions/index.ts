@@ -10,8 +10,14 @@
  *   3. /process-guard diagnostics
  *   4. passive warning when loaded without the pi-guard launcher (docs §14)
  *
- * The extension is a singleton (docs §13.2): auto-discovery and an explicit
- * --extension from the launcher must not double-initialize it.
+ * Pi re-runs the extension factory for every runtime (/new, /reload, …), so
+ * the factory must re-register handlers/commands on the fresh ExtensionAPI.
+ * Within one runtime generation, auto-discovery and the launcher's explicit
+ * --extension may load the same extension twice (source .ts + compiled .js),
+ * which must not double-initialize (docs §13.2). The registration is therefore
+ * scoped per runtime generation, not per process: a session_shutdown (which pi
+ * fires before re-running the factory) bumps the generation, distinguishing a
+ * genuine re-registration from a same-pass duplicate.
  */
 
 import { randomUUID } from "node:crypto";
@@ -30,7 +36,9 @@ const log = createLogger(loadConfig(), { action: "session" });
 /** Result of the most recent session cleanup, shown when the next session starts. */
 let lastCleanup: { stopped: number; at: number } | undefined;
 
-const SINGLETON_KEY = Symbol.for("pi-process-guard.extension.loaded");
+/** Runtime-generation counters shared across the .ts/.js module instances (docs §13.2). */
+const GENERATION_KEY = Symbol.for("pi-process-guard.extension.generation");
+const REGISTRATION_KEY = Symbol.for("pi-process-guard.extension.registration-generation");
 
 /** EXTENSION_READY handshake: confirms the bundled extension really loaded (docs §18.1). */
 async function notifyExtensionReady(runtime: ReturnType<typeof getRuntimeContext>): Promise<void> {
@@ -51,10 +59,15 @@ async function notifyExtensionReady(runtime: ReturnType<typeof getRuntimeContext
 }
 
 export default function (pi: ExtensionAPI) {
-	// Singleton guard (docs §13.2): auto-discovery + explicit -e injection.
+	// Register at most once per runtime generation (docs §13.2). A duplicate
+	// factory call within the same generation is the same-pass auto-discovery +
+	// --extension double-load and must be ignored; a call after session_shutdown
+	// (pi fires it before re-running the factory on /new, /reload, /resume,
+	// /fork) is a new runtime and must re-register on the fresh api.
 	const g = globalThis as Record<symbol, unknown>;
-	if (g[SINGLETON_KEY]) return;
-	g[SINGLETON_KEY] = true;
+	const generation = (g[GENERATION_KEY] as number) ?? 0;
+	if (g[REGISTRATION_KEY] === generation) return;
+	g[REGISTRATION_KEY] = generation;
 
 	const sessionManager = createSessionManager();
 	setSessionManager(sessionManager);
@@ -90,6 +103,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		// Advance the runtime generation so the factory call pi makes when
+		// re-initializing after /new, /resume, /fork, /reload registers again
+		// on the new ExtensionAPI instead of being skipped as a duplicate.
+		const g = globalThis as Record<symbol, unknown>;
+		g[GENERATION_KEY] = ((g[GENERATION_KEY] as number) ?? 0) + 1;
 		const sm = getSessionManager();
 		if (!sm) return;
 		// Session-scoped cleanup only: /new, /resume, /fork, /reload must never
